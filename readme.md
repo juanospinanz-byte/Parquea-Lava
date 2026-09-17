@@ -40,5 +40,26 @@ en esta imagen se muestra el apartado del usuario en la que puede estar viendo l
 - negro: 000000
 - blanco: FFFFFF
 
-## flujo
+## flujo de la app
 
+```text
+                  [ Pantalla Inicial ]
+                            │
+            ┌───────────────┴───────────────┐
+            ▼                               ▼
+ [ Formulario de Login ]         [ Formulario de Registro ]
+            │                               │
+            └───────────────┬───────────────┘
+                            ▼
+              ¿Tipo de usuario registrado?
+                            │
+            ┌───────────────┴───────────────┐
+            ▼                               ▼
+   [ Dueño de Parqueadero ]            [ Cliente ]
+            │                               │
+ ┌──────────┴──────────┐         ┌──────────┴──────────┐
+ ▼                     ▼         ▼                     ▼
+[Gestión de Celdas]  [Ubicación][Consulta Celdas]  [Ver Ubicación]
+ - Motos              - Dirección - Motos            - Dirección
+ - Carros             - Mapa      - Carros           - Mapa
+ - Camiones                       - Camiones
