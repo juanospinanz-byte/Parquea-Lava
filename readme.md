@@ -1,4 +1,4 @@
-## Parquea-Lava
+# Parquea-Lava
 
 <img src="image.png" alt="Inicio de sesión" width="300">
 
@@ -33,3 +33,12 @@ en la imagen se muestra el mapa de los parqueaderos cercanos al usuario y que pu
 <img src="image-5.png" alt="Celdas disponibles" width="300">
 
 en esta imagen se muestra el apartado del usuario en la que puede estar viendo las celdas disponibles y el precio por hora y se muestra la ubicacion del parqueadero.
+
+## paleta de colores
+
+- amarillo: FFE600
+- negro: 000000
+- blanco: FFFFFF
+
+## flujo
+
