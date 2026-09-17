@@ -42,24 +42,46 @@ en esta imagen se muestra el apartado del usuario en la que puede estar viendo l
 
 ## flujo de la app
 
-```text
-                  [ Pantalla Inicial ]
-                            │
-            ┌───────────────┴───────────────┐
-            ▼                               ▼
- [ Formulario de Login ]         [ Formulario de Registro ]
-            │                               │
-            └───────────────┬───────────────┘
-                            ▼
-              ¿Tipo de usuario registrado?
-                            │
-            ┌───────────────┴───────────────┐
-            ▼                               ▼
-   [ Dueño de Parqueadero ]            [ Cliente ]
-            │                               │
- ┌──────────┴──────────┐         ┌──────────┴──────────┐
- ▼                     ▼         ▼                     ▼
-[Gestión de Celdas]  [Ubicación][Consulta Celdas]  [Ver Ubicación]
- - Motos              - Dirección - Motos            - Dirección
- - Carros             - Mapa      - Carros           - Mapa
- - Camiones                       - Camiones
+1. Pantalla de Acceso Inicial
+
+Inicio de Sesión: Campos de usuario/correo y contraseña + botón "Iniciar Sesión".
+
+Acceso a Registro: Botón "Crear cuenta" que redirige al Formulario de Registro.
+
+2. Formulario de Registro y Selección de Rol
+
+Datos Básicos: Formulario para ingresar datos personales (Nombre, Correo, Contraseña).
+
+Selección de Tipo de Cuenta: Dos opciones claras mediante botones o selectores:
+
+Dueño de Parqueadero
+
+Usuario / Cliente
+
+Flujo A: Vista del Dueño del Parqueadero
+
+Una vez registrada la cuenta o iniciada la sesión como dueño, accede a su panel de gestión con los siguientes apartados:
+
+Configuración de Celdas Disponibles:
+
+Apartado Motos: Campo numérico para definir/actualizar celdas disponibles para motos.
+
+Apartado Carros: Campo numérico para definir/actualizar celdas disponibles para carros.
+
+Apartado Camiones: Campo numérico para definir/actualizar celdas disponibles para camiones.
+
+Configuración de Ubicación:
+
+Apartado Dirección: Campo de texto o selector en mapa para establecer y publicar la dirección exacta del parqueadero.
+
+Flujo B: Vista del Usuario / Cliente
+
+Al ingresar como cliente, la pantalla principal muestra la información pública ingresada por los dueños:
+
+Consulta de Disponibilidad:
+
+Vista de Celdas: Muestra en tiempo real las celdas disponibles filtradas o desglosadas por Motos, Carros y Camiones (datos sincronizados desde la cuenta del dueño).
+
+Información de Localización:
+
+Vista de Dirección: Apartado visual donde el cliente consulta la dirección exacta cargada por el dueño para saber cómo llegar.
