@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth.routes');
+const parqueaderoRoutes = require('./routes/parqueadero.routes');
 
 const app = express();
 
@@ -12,6 +13,7 @@ app.use(express.json()); // Parse JSON bodies
 
 // Rutas
 app.use('/api/auth', authRoutes);
+app.use('/api/parqueadero', parqueaderoRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
