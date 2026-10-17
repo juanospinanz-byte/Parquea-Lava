@@ -10,6 +10,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import OwnerHomeScreen from './src/screens/OwnerHomeScreen';
 import ClientHomeScreen from './src/screens/ClientHomeScreen';
+import EditLocationScreen from './src/screens/EditLocationScreen';
 import { TABLET_MIN_SIDE } from './src/hooks/useResponsive';
 
 const Stack = createNativeStackNavigator();
@@ -77,6 +78,7 @@ export default function App() {
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />
           <Stack.Screen name="ClientHome" component={ClientHomeScreen} />
+          <Stack.Screen name="EditLocation" component={EditLocationScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

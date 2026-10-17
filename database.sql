@@ -15,7 +15,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
 CREATE TABLE IF NOT EXISTS parqueaderos (
   id INT AUTO_INCREMENT PRIMARY KEY,
   usuario_id INT NOT NULL UNIQUE,
+  nombre VARCHAR(150) DEFAULT 'Mi Parqueadero',
   direccion VARCHAR(255) DEFAULT 'Sin dirección registrada',
+  latitud DECIMAL(10,8) DEFAULT NULL,
+  longitud DECIMAL(11,8) DEFAULT NULL,
+  detalles_ubicacion VARCHAR(255) DEFAULT NULL,
   
   -- Celdas de Motos
   motos_disponibles INT DEFAULT 0,
