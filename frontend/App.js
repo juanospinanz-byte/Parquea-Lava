@@ -2,18 +2,32 @@ import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Dimensions } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import OwnerHomeScreen from './src/screens/OwnerHomeScreen';
 import ClientHomeScreen from './src/screens/ClientHomeScreen';
+import { TABLET_MIN_SIDE } from './src/hooks/useResponsive';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Teléfonos: solo vertical. Tablets: vertical y horizontal.
+  useEffect(() => {
+    const { width, height } = Dimensions.get('screen');
+    const isTablet = Math.min(width, height) >= TABLET_MIN_SIDE;
+    ScreenOrientation.lockAsync(
+      isTablet
+        ? ScreenOrientation.OrientationLock.DEFAULT
+        : ScreenOrientation.OrientationLock.PORTRAIT_UP
+    ).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -50,19 +64,21 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={initialRoute}
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#000000' },
-        }}
-      >
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
-        <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />
-        <Stack.Screen name="ClientHome" component={ClientHomeScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={initialRoute}
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: '#000000' },
+          }}
+        >
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />
+          <Stack.Screen name="ClientHome" component={ClientHomeScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

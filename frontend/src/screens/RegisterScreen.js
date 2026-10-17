@@ -15,6 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
+import useResponsive from '../hooks/useResponsive';
 
 const RegisterScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -23,6 +24,7 @@ const RegisterScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('dueno_parqueadero'); // default as shown in screenshot
   const [loading, setLoading] = useState(false);
+  const { isTablet, isWideLayout } = useResponsive();
 
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password) {
@@ -77,173 +79,189 @@ const RegisterScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Barra superior con navegación e icono de perfil */}
-          <View style={styles.topBar}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
-            </TouchableOpacity>
-
-            <View style={styles.profileBadge}>
-              <Ionicons name="person-outline" size={20} color="#8E8E93" />
-            </View>
-          </View>
-
-          {/* Título de pantalla */}
-          <Text style={styles.title}>Crear Cuenta</Text>
-          <Text style={styles.subtitle}>Únete a la red de parqueo más grande</Text>
-
-          {/* Formulario */}
-          <View style={styles.formContainer}>
-            {/* Campo Nombre */}
-            <Text style={styles.label}>
-              NOMBRE COMPLETO <Text style={styles.requiredStar}>*</Text>
-            </Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Carlos Mendoza"
-                placeholderTextColor="#666666"
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-              />
-            </View>
-
-            {/* Campo Correo */}
-            <Text style={[styles.label, { marginTop: 18 }]}>
-              CORREO ELECTRÓNICO <Text style={styles.requiredStar}>*</Text>
-            </Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="carlos@mendoza.com"
-                placeholderTextColor="#666666"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            {/* Campo Contraseña */}
-            <Text style={[styles.label, { marginTop: 18 }]}>
-              CONTRASEÑA <Text style={styles.requiredStar}>*</Text>
-            </Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={[styles.textInput, { flex: 1 }]}
-                placeholder="••••••••"
-                placeholderTextColor="#666666"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-              />
+          <View
+            style={[
+              styles.contentWrapper,
+              isTablet && styles.contentWrapperTablet,
+            ]}
+          >
+            {/* Barra superior con navegación e icono de perfil */}
+            <View style={styles.topBar}>
               <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeButton}
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
                 activeOpacity={0.7}
               >
-                <Feather
-                  name={showPassword ? 'eye' : 'eye-off'}
-                  size={20}
-                  color="#888888"
-                />
+                <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
               </TouchableOpacity>
+
+              <View style={styles.profileBadge}>
+                <Ionicons name="person-outline" size={20} color="#8E8E93" />
+              </View>
             </View>
 
-            {/* Selector de Perfil / Rol */}
-            <Text style={[styles.label, { marginTop: 22, marginBottom: 12 }]}>
-              SELECCIONA TU PERFIL
-            </Text>
+            {/* Título de pantalla */}
+            <Text style={styles.title}>Crear Cuenta</Text>
+            <Text style={styles.subtitle}>Únete a la red de parqueo más grande</Text>
 
-            <View style={styles.rolesRow}>
-              {/* Tarjeta Dueño de Parqueadero */}
-              <TouchableOpacity
-                style={[
-                  styles.roleCard,
-                  role === 'dueno_parqueadero'
-                    ? styles.roleCardActive
-                    : styles.roleCardInactive,
-                ]}
-                onPress={() => setRole('dueno_parqueadero')}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.roleIconBox,
-                    role === 'dueno_parqueadero'
-                      ? styles.roleIconBoxActive
-                      : styles.roleIconBoxInactive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.roleIconTextP,
-                      {
-                        color:
-                          role === 'dueno_parqueadero' ? '#000000' : '#FFD200',
-                      },
-                    ]}
-                  >
-                    P
-                  </Text>
-                </View>
-                <Text style={styles.roleTitle}>Dueño de{'\n'}Parqueadero</Text>
-                <Text style={styles.roleDescription}>
-                  Quiero registrar y administrar mis celdas
+            {/* Formulario */}
+            <View style={[styles.formContainer, isWideLayout && styles.formContainerWide]}>
+              <View style={isWideLayout && styles.formColumn}>
+                {/* Campo Nombre */}
+                <Text style={styles.label}>
+                  NOMBRE COMPLETO <Text style={styles.requiredStar}>*</Text>
                 </Text>
-              </TouchableOpacity>
-
-              {/* Tarjeta Usuario Cliente */}
-              <TouchableOpacity
-                style={[
-                  styles.roleCard,
-                  role === 'cliente'
-                    ? styles.roleCardActive
-                    : styles.roleCardInactive,
-                ]}
-                onPress={() => setRole('cliente')}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.roleIconBox,
-                    role === 'cliente'
-                      ? styles.roleIconBoxActive
-                      : styles.roleIconBoxInactive,
-                  ]}
-                >
-                  <Ionicons
-                    name="car-sport"
-                    size={18}
-                    color={role === 'cliente' ? '#000000' : '#8E8E93'}
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Carlos Mendoza"
+                    placeholderTextColor="#666666"
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
                   />
                 </View>
-                <Text style={styles.roleTitle}>Usuario{'\n'}Cliente</Text>
-                <Text style={styles.roleDescription}>
-                  Quiero buscar y reservar espacios de parqueo
-                </Text>
-              </TouchableOpacity>
-            </View>
 
-            {/* Botón Registrarse */}
-            <TouchableOpacity
-              style={[styles.registerButton, loading && styles.buttonDisabled]}
-              onPress={handleRegister}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator color="#000000" />
-              ) : (
-                <Text style={styles.registerButtonText}>REGISTRARSE</Text>
-              )}
-            </TouchableOpacity>
+                {/* Campo Correo */}
+                <Text style={[styles.label, { marginTop: 18 }]}>
+                  CORREO ELECTRÓNICO <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="carlos@mendoza.com"
+                    placeholderTextColor="#666666"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                {/* Campo Contraseña */}
+                <Text style={[styles.label, { marginTop: 18 }]}>
+                  CONTRASEÑA <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={[styles.textInput, { flex: 1 }]}
+                    placeholder="••••••••"
+                    placeholderTextColor="#666666"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeButton}
+                    activeOpacity={0.7}
+                  >
+                    <Feather
+                      name={showPassword ? 'eye' : 'eye-off'}
+                      size={20}
+                      color="#888888"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={isWideLayout && styles.formColumn}>
+                {/* Selector de Perfil / Rol */}
+                <Text
+                  style={[
+                    styles.label,
+                    { marginTop: isWideLayout ? 0 : 22, marginBottom: 12 },
+                  ]}
+                >
+                  SELECCIONA TU PERFIL
+                </Text>
+
+                <View style={styles.rolesRow}>
+                  {/* Tarjeta Dueño de Parqueadero */}
+                  <TouchableOpacity
+                    style={[
+                      styles.roleCard,
+                      role === 'dueno_parqueadero'
+                        ? styles.roleCardActive
+                        : styles.roleCardInactive,
+                    ]}
+                    onPress={() => setRole('dueno_parqueadero')}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.roleIconBox,
+                        role === 'dueno_parqueadero'
+                          ? styles.roleIconBoxActive
+                          : styles.roleIconBoxInactive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.roleIconTextP,
+                          {
+                            color:
+                              role === 'dueno_parqueadero' ? '#000000' : '#FFD200',
+                          },
+                        ]}
+                      >
+                        P
+                      </Text>
+                    </View>
+                    <Text style={styles.roleTitle}>Dueño de{'\n'}Parqueadero</Text>
+                    <Text style={styles.roleDescription}>
+                      Quiero registrar y administrar mis celdas
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Tarjeta Usuario Cliente */}
+                  <TouchableOpacity
+                    style={[
+                      styles.roleCard,
+                      role === 'cliente'
+                        ? styles.roleCardActive
+                        : styles.roleCardInactive,
+                    ]}
+                    onPress={() => setRole('cliente')}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.roleIconBox,
+                        role === 'cliente'
+                          ? styles.roleIconBoxActive
+                          : styles.roleIconBoxInactive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="car-sport"
+                        size={18}
+                        color={role === 'cliente' ? '#000000' : '#8E8E93'}
+                      />
+                    </View>
+                    <Text style={styles.roleTitle}>Usuario{'\n'}Cliente</Text>
+                    <Text style={styles.roleDescription}>
+                      Quiero buscar y reservar espacios de parqueo
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Botón Registrarse */}
+                <TouchableOpacity
+                  style={[styles.registerButton, loading && styles.buttonDisabled]}
+                  onPress={handleRegister}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#000000" />
+                  ) : (
+                    <Text style={styles.registerButtonText}>REGISTRARSE</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -260,6 +278,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 50,
     paddingBottom: 40,
+  },
+  contentWrapper: {
+    width: '100%',
+    alignSelf: 'center',
+  },
+  contentWrapperTablet: {
+    paddingHorizontal: 24,
   },
   topBar: {
     flexDirection: 'row',
@@ -297,6 +322,13 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
+  },
+  formContainerWide: {
+    flexDirection: 'row',
+    gap: 32,
+  },
+  formColumn: {
+    flex: 1,
   },
   label: {
     fontSize: 12,

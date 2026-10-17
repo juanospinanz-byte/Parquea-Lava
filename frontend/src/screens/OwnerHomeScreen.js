@@ -5,21 +5,24 @@ import {
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
   ScrollView,
   Modal,
   TextInput,
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import api from '../services/api';
+import useResponsive from '../hooks/useResponsive';
 
 const OwnerHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
   const [parqueadero, setParqueadero] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { isTablet, isWideLayout } = useResponsive();
+  const tabletPadding = isTablet && styles.tabletPadding;
 
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
@@ -143,7 +146,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
       {/* Top Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, tabletPadding]}>
         <View style={styles.parkappBadge}>
           <Text style={styles.parkappText}>PARKAPP</Text>
         </View>
@@ -152,68 +155,79 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scrollContent, tabletPadding]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Title Section */}
         <Text style={styles.mainTitle}>Mi Parqueadero</Text>
         <Text style={styles.mainSubtitle}>Administra las celdas disponibles en tiempo real</Text>
 
-        {/* Celdas Disponibles Section */}
-        <Text style={styles.sectionTitle}>CELDAS DISPONIBLES</Text>
-        
-        {renderCellCard(
-          'motos', 
-          'Celdas Motos', 
-          parqueadero.motos_max, 
-          parqueadero.motos_disponibles,
-          parqueadero.motos_precio,
-          'motorbike'
-        )}
-        
-        {renderCellCard(
-          'carros', 
-          'Celdas Carros', 
-          parqueadero.carros_max, 
-          parqueadero.carros_disponibles,
-          parqueadero.carros_precio,
-          'car-sport',
-          'Ionicons'
-        )}
-        
-        {renderCellCard(
-          'camiones', 
-          'Celdas Camiones', 
-          parqueadero.camiones_max, 
-          parqueadero.camiones_disponibles,
-          parqueadero.camiones_precio,
-          'truck-outline'
-        )}
-
-        {/* Dirección Section */}
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>DIRECCIÓN DEL PARQUEADERO</Text>
-        
-        <View style={styles.addressCard}>
-          <View style={styles.addressRow}>
-            <Ionicons name="location-outline" size={20} color="#FFD200" />
-            <Text style={styles.addressText}>{parqueadero.direccion}</Text>
+        <View style={isWideLayout && styles.columns}>
+          <View style={isWideLayout && styles.column}>
+            {/* Celdas Disponibles Section */}
+            <Text style={styles.sectionTitle}>CELDAS DISPONIBLES</Text>
+            
+            {renderCellCard(
+              'motos', 
+              'Celdas Motos', 
+              parqueadero.motos_max, 
+              parqueadero.motos_disponibles,
+              parqueadero.motos_precio,
+              'motorbike'
+            )}
+            
+            {renderCellCard(
+              'carros', 
+              'Celdas Carros', 
+              parqueadero.carros_max, 
+              parqueadero.carros_disponibles,
+              parqueadero.carros_precio,
+              'car-sport',
+              'Ionicons'
+            )}
+            
+            {renderCellCard(
+              'camiones', 
+              'Celdas Camiones', 
+              parqueadero.camiones_max, 
+              parqueadero.camiones_disponibles,
+              parqueadero.camiones_precio,
+              'truck-outline'
+            )}
           </View>
-          <TouchableOpacity 
-            style={styles.editAddressBtn}
-            onPress={() => openEditModal('direccion')}
-          >
-            <Text style={styles.editAddressText}>EDITAR DIRECCIÓN</Text>
-          </TouchableOpacity>
-        </View>
 
-        {/* Botón Cerrar Sesión */}
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="exit-outline" size={20} color="#FF5252" style={{ marginRight: 8 }} />
-          <Text style={styles.logoutButtonText}>CERRAR SESIÓN</Text>
-        </TouchableOpacity>
-        <View style={{ height: 40 }} /> {/* Espacio extra al final */}
+          <View style={isWideLayout && styles.column}>
+            {/* Dirección Section */}
+            <Text style={[styles.sectionTitle, { marginTop: isWideLayout ? 0 : 10 }]}>DIRECCIÓN DEL PARQUEADERO</Text>
+            
+            <View style={styles.addressCard}>
+              <View style={styles.addressRow}>
+                <Ionicons name="location-outline" size={20} color="#FFD200" />
+                <Text style={styles.addressText}>{parqueadero.direccion}</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.editAddressBtn}
+                onPress={() => openEditModal('direccion')}
+              >
+                <Text style={styles.editAddressText}>EDITAR DIRECCIÓN</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Botón Cerrar Sesión */}
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="exit-outline" size={20} color="#FF5252" style={{ marginRight: 8 }} />
+              <Text style={styles.logoutButtonText}>CERRAR SESIÓN</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {/* Espacio extra al final */}
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       {/* Edit Modal */}
@@ -323,9 +337,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  tabletPadding: {
+    paddingHorizontal: 40,
+  },
   scrollContent: {
-    flex: 1,
     paddingHorizontal: 20,
+  },
+  columns: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  column: {
+    flex: 1,
   },
   mainTitle: {
     fontSize: 28,
@@ -450,6 +473,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '100%',
+    maxWidth: 480,
     backgroundColor: '#1C1C1E',
     borderRadius: 20,
     padding: 24,

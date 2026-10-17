@@ -5,14 +5,17 @@ import {
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import useResponsive from '../hooks/useResponsive';
 
 const ClientHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const { isTablet } = useResponsive();
 
   useEffect(() => {
     const getUserData = async () => {
@@ -40,7 +43,10 @@ const ClientHomeScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <View style={styles.content}>
+      <ScrollView
+        contentContainerStyle={[styles.content, isTablet && styles.contentTablet]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoBadge}>
@@ -87,7 +93,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
           <Ionicons name="exit-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -98,11 +104,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 22,
     paddingTop: 20,
     justifyContent: 'space-between',
     paddingBottom: 24,
+  },
+  contentTablet: {
+    paddingHorizontal: 40,
   },
   header: {
     flexDirection: 'row',
@@ -164,6 +173,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1.5,
     borderColor: '#FFD200',
+    marginBottom: 24,
   },
   cardHeader: {
     flexDirection: 'row',

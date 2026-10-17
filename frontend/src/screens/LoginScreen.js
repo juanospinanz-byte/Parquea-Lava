@@ -15,6 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
+import useResponsive from '../hooks/useResponsive';
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -22,6 +23,7 @@ const LoginScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
+  const { isTablet, isWideLayout } = useResponsive();
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -68,117 +70,125 @@ const LoginScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Logo y Encabezado */}
-          <View style={styles.headerContainer}>
-            <View style={styles.logoBadge}>
-              <View style={styles.logoInnerBox}>
-                <Text style={styles.logoP}>P</Text>
-              </View>
-            </View>
-
-            <Text style={styles.brandTitle}>PARKAPP</Text>
-            <Text style={styles.brandSubtitle}>
-              Gestión inteligente de parqueaderos
-            </Text>
-          </View>
-
-          {/* Formulario */}
-          <View style={styles.formContainer}>
-            {/* Campo Correo */}
-            <Text style={styles.inputLabel}>CORREO ELECTRÓNICO</Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="propietario@parkapp.com"
-                placeholderTextColor="#666666"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            {/* Campo Contraseña */}
-            <Text style={[styles.inputLabel, { marginTop: 18 }]}>CONTRASEÑA</Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={[styles.textInput, { flex: 1 }]}
-                placeholder="••••••••••••"
-                placeholderTextColor="#666666"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeButton}
-                activeOpacity={0.7}
-              >
-                <Feather
-                  name={showPassword ? 'eye' : 'eye-off'}
-                  size={20}
-                  color="#888888"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Fila Recordarme y Olvido Contraseña */}
-            <View style={styles.optionsRow}>
-              <TouchableOpacity
-                style={styles.rememberContainer}
-                onPress={() => setRememberMe(!rememberMe)}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    rememberMe ? styles.checkboxChecked : styles.checkboxUnchecked,
-                  ]}
-                >
-                  {rememberMe && (
-                    <Ionicons name="checkmark" size={14} color="#000000" />
-                  )}
+          <View
+            style={[
+              styles.contentWrapper,
+              isTablet && styles.contentWrapperTablet,
+              isWideLayout && styles.contentWrapperWide,
+            ]}
+          >
+            {/* Logo y Encabezado */}
+            <View style={[styles.headerContainer, isWideLayout && styles.headerContainerWide]}>
+              <View style={styles.logoBadge}>
+                <View style={styles.logoInnerBox}>
+                  <Text style={styles.logoP}>P</Text>
                 </View>
-                <Text style={styles.rememberText}>Recordarme</Text>
-              </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                onPress={() =>
-                  Alert.alert(
-                    'Recuperación',
-                    'Función de restablecer contraseña próximamente.'
-                  )
-                }
-              >
-                <Text style={styles.forgotPasswordText}>¿Olvidó contraseña?</Text>
-              </TouchableOpacity>
+              <Text style={styles.brandTitle}>PARKAPP</Text>
+              <Text style={styles.brandSubtitle}>
+                Gestión inteligente de parqueaderos
+              </Text>
             </View>
 
-            {/* Botón Iniciar Sesión */}
-            <TouchableOpacity
-              style={[styles.loginButton, loading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator color="#000000" />
-              ) : (
-                <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
-              )}
-            </TouchableOpacity>
+            {/* Formulario */}
+            <View style={[styles.formContainer, isWideLayout && styles.formContainerWide]}>
+              {/* Campo Correo */}
+              <Text style={styles.inputLabel}>CORREO ELECTRÓNICO</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="propietario@parkapp.com"
+                  placeholderTextColor="#666666"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
 
-            {/* Pie de pantalla: Enlace a Registro */}
-            <View style={styles.footerRow}>
-              <Text style={styles.footerText}>¿No tienes una cuenta? </Text>
+              {/* Campo Contraseña */}
+              <Text style={[styles.inputLabel, { marginTop: 18 }]}>CONTRASEÑA</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={[styles.textInput, { flex: 1 }]}
+                  placeholder="••••••••••••"
+                  placeholderTextColor="#666666"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}
+                >
+                  <Feather
+                    name={showPassword ? 'eye' : 'eye-off'}
+                    size={20}
+                    color="#888888"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Fila Recordarme y Olvido Contraseña */}
+              <View style={styles.optionsRow}>
+                <TouchableOpacity
+                  style={styles.rememberContainer}
+                  onPress={() => setRememberMe(!rememberMe)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      rememberMe ? styles.checkboxChecked : styles.checkboxUnchecked,
+                    ]}
+                  >
+                    {rememberMe && (
+                      <Ionicons name="checkmark" size={14} color="#000000" />
+                    )}
+                  </View>
+                  <Text style={styles.rememberText}>Recordarme</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() =>
+                    Alert.alert(
+                      'Recuperación',
+                      'Función de restablecer contraseña próximamente.'
+                    )
+                  }
+                >
+                  <Text style={styles.forgotPasswordText}>¿Olvidó contraseña?</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Botón Iniciar Sesión */}
               <TouchableOpacity
-                onPress={() => navigation.navigate('Register')}
-                activeOpacity={0.7}
+                style={[styles.loginButton, loading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.85}
               >
-                <Text style={styles.registerLink}>Crear cuenta</Text>
+                {loading ? (
+                  <ActivityIndicator color="#000000" />
+                ) : (
+                  <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
+                )}
               </TouchableOpacity>
+
+              {/* Pie de pantalla: Enlace a Registro */}
+              <View style={styles.footerRow}>
+                <Text style={styles.footerText}>¿No tienes una cuenta? </Text>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Register')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.registerLink}>Crear cuenta</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </ScrollView>
@@ -199,9 +209,25 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 30,
   },
+  contentWrapper: {
+    width: '100%',
+    alignSelf: 'center',
+  },
+  contentWrapperTablet: {
+    paddingHorizontal: 40,
+  },
+  contentWrapperWide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerContainer: {
     alignItems: 'center',
     marginBottom: 36,
+  },
+  headerContainerWide: {
+    flex: 1,
+    marginBottom: 0,
+    paddingRight: 40,
   },
   logoBadge: {
     width: 68,
@@ -245,6 +271,10 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
+  },
+  formContainerWide: {
+    flex: 1,
+    width: undefined,
   },
   inputLabel: {
     fontSize: 12,
