@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,10 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  Linking,
-  Platform,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
@@ -56,16 +56,28 @@ const formatDistance = (km, fallbackIndex = 0) => {
   return `A ${km.toFixed(1)}km`;
 };
 
+const formatPrice = (value) => `$${parseFloat(value || 0).toLocaleString()}`;
+
+const getTotalDisponibles = (item) =>
+  (item.motos_disponibles || 0) + (item.carros_disponibles || 0) + (item.camiones_disponibles || 0);
+
+// US05: cada cuánto se refresca la lista/mapa mientras la pantalla está visible
+const REFRESH_INTERVAL_MS = 10000;
+
 const ClientHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [parqueaderos, setParqueaderos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [userLocation, setUserLocation] = useState(DEFAULT_USER_COORDS);
 
+  // US05: parqueadero seleccionado en el mapa
+  const [mapSelectedId, setMapSelectedId] = useState(null);
+  const mapRef = useRef(null);
+
   // Modals state
-  const [selectedParqueadero, setSelectedParqueadero] = useState(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
@@ -90,9 +102,24 @@ const ClientHomeScreen = ({ navigation, route }) => {
       }
     };
     getUserData();
-    fetchParqueaderos();
     requestUserLocation();
   }, []);
+
+  // Refresca al volver a la pantalla y periódicamente para mantener la disponibilidad al día
+  useFocusEffect(
+    useCallback(() => {
+      fetchParqueaderos();
+      const interval = setInterval(() => fetchParqueaderos(true), REFRESH_INTERVAL_MS);
+      return () => clearInterval(interval);
+    }, [])
+  );
+
+  const centerMapOn = (coords) => {
+    mapRef.current?.animateToRegion(
+      { ...coords, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+      800
+    );
+  };
 
   const requestUserLocation = async () => {
     try {
@@ -101,27 +128,45 @@ const ClientHomeScreen = ({ navigation, route }) => {
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        setUserLocation({
+        const coords = {
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
-        });
+        };
+        setUserLocation(coords);
+        centerMapOn(coords);
       }
     } catch (e) {
       // Keep default Bogotá coords
     }
   };
 
-  const fetchParqueaderos = async () => {
+  // silent: refresco en segundo plano, sin alertas de error
+  const fetchParqueaderos = async (silent = false) => {
     try {
-      setLoading(true);
       const response = await api.get('/api/parqueadero/todos');
       setParqueaderos(response.data);
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'No se pudieron cargar los parqueaderos');
+      if (!silent) {
+        Alert.alert('Error', 'No se pudieron cargar los parqueaderos');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchParqueaderos();
+    setRefreshing(false);
+  };
+
+  const openDetail = (item) => {
+    navigation.navigate('ParkingDetail', {
+      parqueaderoId: item.id,
+      parqueadero: item,
+      distanceText: item.distanceText,
+    });
   };
 
   const handleLogout = async () => {
@@ -129,25 +174,6 @@ const ClientHomeScreen = ({ navigation, route }) => {
     await AsyncStorage.removeItem('userToken');
     await AsyncStorage.removeItem('userData');
     navigation.replace('Login');
-  };
-
-  // Open location in external Maps app
-  const openExternalMaps = (parqueadero) => {
-    if (!parqueadero.latitud || !parqueadero.longitud) {
-      Alert.alert('Sin coordenadas', 'Este parqueadero aún no tiene coordenadas GPS registradas.');
-      return;
-    }
-    const lat = parseFloat(parqueadero.latitud);
-    const lng = parseFloat(parqueadero.longitud);
-    const label = encodeURIComponent(parqueadero.nombre || 'Parqueadero');
-    const url = Platform.select({
-      ios: `maps:0,0?q=${label}@${lat},${lng}`,
-      android: `geo:0,0?q=${lat},${lng}(${label})`,
-      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
-    });
-    Linking.openURL(url).catch(() => {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
-    });
   };
 
   // Processed and filtered list
@@ -185,10 +211,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
         if (vehicleFilter === 'camiones' && (item.camiones_disponibles || 0) <= 0) return false;
 
         // Only available filter
-        if (onlyAvailable) {
-          const totalDisp = (item.motos_disponibles || 0) + (item.carros_disponibles || 0) + (item.camiones_disponibles || 0);
-          if (totalDisp <= 0) return false;
-        }
+        if (onlyAvailable && getTotalDisponibles(item) <= 0) return false;
 
         return true;
       })
@@ -199,6 +222,10 @@ const ClientHomeScreen = ({ navigation, route }) => {
         return 0;
       });
   }, [parqueaderos, searchQuery, vehicleFilter, onlyAvailable, userLocation]);
+
+  // US05: solo los parqueaderos con coordenadas pueden ubicarse en el mapa
+  const mapParqueaderos = filteredParqueaderos.filter((item) => item.latitud && item.longitud);
+  const mapSelected = mapParqueaderos.find((item) => item.id === mapSelectedId);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -222,6 +249,14 @@ const ClientHomeScreen = ({ navigation, route }) => {
       <ScrollView
         contentContainerStyle={[styles.content, isTablet && styles.contentTablet]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#FFD200"
+            colors={['#FFD200']}
+          />
+        }
       >
         {/* Title Section */}
         <Text style={styles.title}>Parqueaderos</Text>
@@ -255,6 +290,121 @@ const ClientHomeScreen = ({ navigation, route }) => {
           >
             <Ionicons name="options" size={22} color="#000000" />
           </TouchableOpacity>
+        </View>
+
+        {/* US05: Mapa de parqueaderos cercanos */}
+        <Text style={[styles.sectionTitle, { marginBottom: 14 }]}>MAPA DE PARQUEADEROS</Text>
+        <View style={styles.mapCard}>
+          <View style={[styles.mapContainer, isTablet && styles.mapContainerTablet]}>
+            <MapView
+              ref={mapRef}
+              style={styles.map}
+              initialRegion={{
+                ...userLocation,
+                latitudeDelta: 0.04,
+                longitudeDelta: 0.04,
+              }}
+              showsUserLocation
+              showsMyLocationButton={false}
+              toolbarEnabled={false}
+              onPress={(e) => {
+                // En Android tocar un marcador también dispara el onPress del mapa
+                if (e.nativeEvent.action !== 'marker-press') setMapSelectedId(null);
+              }}
+            >
+              {mapParqueaderos.map((item) => {
+                const isSelected = item.id === mapSelectedId;
+                const total = getTotalDisponibles(item);
+                return (
+                  <Marker
+                    key={item.id}
+                    coordinate={{
+                      latitude: parseFloat(item.latitud),
+                      longitude: parseFloat(item.longitud),
+                    }}
+                    onPress={() => setMapSelectedId(item.id)}
+                  >
+                    <View
+                      style={[
+                        styles.mapMarker,
+                        total === 0 && styles.mapMarkerFull,
+                        isSelected && styles.mapMarkerSelected,
+                      ]}
+                    >
+                      <MaterialCommunityIcons name="parking" size={14} color="#000000" />
+                      <Text style={styles.mapMarkerText}>{total}</Text>
+                    </View>
+                  </Marker>
+                );
+              })}
+            </MapView>
+
+            <TouchableOpacity
+              style={styles.locateButton}
+              onPress={() => centerMapOn(userLocation)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="locate" size={20} color="#000000" />
+            </TouchableOpacity>
+
+            {!loading && mapParqueaderos.length === 0 && (
+              <View style={styles.mapEmptyBadge}>
+                <Text style={styles.mapEmptyText}>Sin parqueaderos ubicados en el mapa</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Información clave del parqueadero seleccionado en el mapa */}
+          {mapSelected ? (
+            <View style={styles.mapPreview}>
+              <View style={styles.cardTopRow}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {mapSelected.nombre || 'Parqueadero'}
+                </Text>
+                <View style={styles.distanceBadge}>
+                  <Text style={styles.distanceText}>{mapSelected.distanceText}</Text>
+                </View>
+              </View>
+
+              <View style={styles.mapPreviewAddressRow}>
+                <Ionicons name="location-outline" size={14} color="#FFD200" />
+                <Text style={styles.mapPreviewAddress} numberOfLines={1}>
+                  {mapSelected.direccion || 'Sin dirección registrada'}
+                </Text>
+              </View>
+
+              <View style={styles.mapPreviewGrid}>
+                {[
+                  { key: 'motos', label: 'Moto', icon: <MaterialCommunityIcons name="motorbike" size={16} color="#FFD200" /> },
+                  { key: 'carros', label: 'Carro', icon: <Ionicons name="car-sport" size={16} color="#FFD200" /> },
+                  { key: 'camiones', label: 'Camión', icon: <MaterialCommunityIcons name="truck-outline" size={16} color="#FFD200" /> },
+                ].map(({ key, label, icon }) => (
+                  <View key={key} style={styles.mapPreviewItem}>
+                    {icon}
+                    <Text style={styles.mapPreviewCount}>
+                      {mapSelected[`${key}_disponibles`] || 0}
+                      <Text style={styles.mapPreviewLabel}> {label}</Text>
+                    </Text>
+                    <Text style={styles.mapPreviewPrice}>
+                      {formatPrice(mapSelected[`${key}_precio`])}/h
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={styles.detailsButton}
+                onPress={() => openDetail(mapSelected)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.detailsButtonText}>VER DETALLES</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.mapHint}>
+              Toca un marcador para ver disponibilidad y precio por hora
+            </Text>
+          )}
         </View>
 
         {/* Section Title */}
@@ -333,7 +483,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 {/* VER DETALLES Button */}
                 <TouchableOpacity
                   style={styles.detailsButton}
-                  onPress={() => setSelectedParqueadero(item)}
+                  onPress={() => openDetail(item)}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.detailsButtonText}>VER DETALLES</Text>
@@ -343,179 +493,6 @@ const ClientHomeScreen = ({ navigation, route }) => {
           })
         )}
       </ScrollView>
-
-      {/* MODAL DETALLES DEL PARQUEADERO */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={!!selectedParqueadero}
-        onRequestClose={() => setSelectedParqueadero(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.detailModalContent}>
-            {selectedParqueadero && (
-              <>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalTitle} numberOfLines={1}>
-                      {selectedParqueadero.nombre || 'Parqueadero'}
-                    </Text>
-                    <Text style={styles.modalSubtitle}>Detalles y Ubicación</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.modalCloseBtn}
-                    onPress={() => setSelectedParqueadero(null)}
-                  >
-                    <Ionicons name="close" size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
-                  {/* Map Preview */}
-                  {selectedParqueadero.latitud && selectedParqueadero.longitud ? (
-                    <View style={styles.detailMapContainer}>
-                      <MapView
-                        style={styles.detailMap}
-                        initialRegion={{
-                          latitude: parseFloat(selectedParqueadero.latitud),
-                          longitude: parseFloat(selectedParqueadero.longitud),
-                          latitudeDelta: 0.006,
-                          longitudeDelta: 0.006,
-                        }}
-                        scrollEnabled={false}
-                        zoomEnabled={false}
-                      >
-                        <Marker
-                          coordinate={{
-                            latitude: parseFloat(selectedParqueadero.latitud),
-                            longitude: parseFloat(selectedParqueadero.longitud),
-                          }}
-                          title={selectedParqueadero.nombre}
-                          description={selectedParqueadero.direccion}
-                        >
-                          <View style={styles.mapMarker}>
-                            <Ionicons name="car-sport" size={16} color="#000" />
-                          </View>
-                        </Marker>
-                      </MapView>
-                      <View style={styles.mapDistanceBadge}>
-                        <Ionicons name="navigate" size={12} color="#FFD200" />
-                        <Text style={styles.mapDistanceText}>
-                          {selectedParqueadero.distanceText}
-                        </Text>
-                      </View>
-                    </View>
-                  ) : null}
-
-                  {/* Address & Details Box */}
-                  <View style={styles.detailSectionBox}>
-                    <View style={styles.detailAddressRow}>
-                      <Ionicons name="location" size={20} color="#FFD200" style={{ marginRight: 10, marginTop: 2 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.detailSectionLabel}>DIRECCIÓN FÍSICA</Text>
-                        <Text style={styles.detailAddressText}>
-                          {selectedParqueadero.direccion || 'Sin dirección registrada'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {selectedParqueadero.detalles_ubicacion ? (
-                      <View style={[styles.detailAddressRow, { marginTop: 12 }]}>
-                        <Ionicons name="information-circle-outline" size={20} color="#FFD200" style={{ marginRight: 10, marginTop: 2 }} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.detailSectionLabel}>DETALLES ADICIONALES</Text>
-                          <Text style={styles.detailDetailsText}>
-                            {selectedParqueadero.detalles_ubicacion}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  {/* Cell Availability Breakdown */}
-                  <Text style={styles.detailSectionHeader}>DISPONIBILIDAD DE CELDAS</Text>
-                  <View style={styles.detailGrid}>
-                    {/* Motos */}
-                    <View style={styles.detailGridItem}>
-                      <MaterialCommunityIcons name="motorbike" size={22} color="#FFD200" />
-                      <Text style={styles.detailGridNumber}>
-                        {selectedParqueadero.motos_disponibles || 0}
-                      </Text>
-                      <Text style={styles.detailGridCap}>
-                        de {selectedParqueadero.motos_max || 0} máx.
-                      </Text>
-                      <Text style={styles.detailGridLabel}>Motos</Text>
-                    </View>
-
-                    {/* Carros */}
-                    <View style={styles.detailGridItem}>
-                      <Ionicons name="car-sport" size={22} color="#FFD200" />
-                      <Text style={styles.detailGridNumber}>
-                        {selectedParqueadero.carros_disponibles || 0}
-                      </Text>
-                      <Text style={styles.detailGridCap}>
-                        de {selectedParqueadero.carros_max || 0} máx.
-                      </Text>
-                      <Text style={styles.detailGridLabel}>Carros</Text>
-                    </View>
-
-                    {/* Camiones */}
-                    <View style={styles.detailGridItem}>
-                      <MaterialCommunityIcons name="truck-outline" size={22} color="#FFD200" />
-                      <Text style={styles.detailGridNumber}>
-                        {selectedParqueadero.camiones_disponibles || 0}
-                      </Text>
-                      <Text style={styles.detailGridCap}>
-                        de {selectedParqueadero.camiones_max || 0} máx.
-                      </Text>
-                      <Text style={styles.detailGridLabel}>Camiones</Text>
-                    </View>
-                  </View>
-
-                  {/* Price per Hour Breakdown */}
-                  <Text style={styles.detailSectionHeader}>PRECIO POR HORA</Text>
-                  <View style={styles.priceRow}>
-                    <View style={styles.priceCard}>
-                      <Text style={styles.priceVehicle}>🏍 Moto</Text>
-                      <Text style={styles.priceValue}>
-                        ${parseFloat(selectedParqueadero.motos_precio || 0).toLocaleString()}
-                      </Text>
-                      <Text style={styles.priceUnit}>por hora</Text>
-                    </View>
-
-                    <View style={styles.priceCard}>
-                      <Text style={styles.priceVehicle}>🚗 Carro</Text>
-                      <Text style={styles.priceValue}>
-                        ${parseFloat(selectedParqueadero.carros_precio || 0).toLocaleString()}
-                      </Text>
-                      <Text style={styles.priceUnit}>por hora</Text>
-                    </View>
-
-                    <View style={styles.priceCard}>
-                      <Text style={styles.priceVehicle}>🚛 Camión</Text>
-                      <Text style={styles.priceValue}>
-                        ${parseFloat(selectedParqueadero.camiones_precio || 0).toLocaleString()}
-                      </Text>
-                      <Text style={styles.priceUnit}>por hora</Text>
-                    </View>
-                  </View>
-                </ScrollView>
-
-                {/* Actions: Navigate */}
-                <TouchableOpacity
-                  style={styles.navigateButton}
-                  onPress={() => openExternalMaps(selectedParqueadero)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="navigate" size={18} color="#000000" style={{ marginRight: 8 }} />
-                  <Text style={styles.navigateButtonText}>CÓMO LLEGAR</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
 
       {/* MODAL FILTROS */}
       <Modal
@@ -741,6 +718,129 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  // US05: Mapa
+  mapCard: {
+    backgroundColor: '#161618',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#262628',
+    overflow: 'hidden',
+    marginBottom: 24,
+  },
+  mapContainer: {
+    height: 220,
+  },
+  mapContainerTablet: {
+    height: 340,
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapMarker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFD200',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#000000',
+    gap: 2,
+  },
+  mapMarkerFull: {
+    backgroundColor: '#8E8E93',
+  },
+  mapMarkerSelected: {
+    backgroundColor: '#FFFFFF',
+  },
+  mapMarkerText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  locateButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFD200',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  mapEmptyBadge: {
+    position: 'absolute',
+    bottom: 10,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  mapEmptyText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+  },
+  mapHint: {
+    color: '#8E8E93',
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  mapPreview: {
+    padding: 16,
+  },
+  mapPreviewAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 12,
+  },
+  mapPreviewAddress: {
+    flex: 1,
+    fontSize: 13,
+    color: '#8E8E93',
+  },
+  mapPreviewGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  mapPreviewItem: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: '#0F0F11',
+    borderRadius: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#262628',
+  },
+  mapPreviewCount: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  mapPreviewLabel: {
+    color: '#8E8E93',
+    fontWeight: 'normal',
+    fontSize: 11,
+  },
+  mapPreviewPrice: {
+    color: '#FFD200',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginTop: 2,
+  },
+
   // Card
   card: {
     backgroundColor: '#161618',
@@ -857,15 +957,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  detailModalContent: {
-    width: '100%',
-    maxWidth: 480,
-    backgroundColor: '#161618',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -889,163 +980,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#262628',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-
-  // Map inside modal
-  detailMapContainer: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    height: 160,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-  },
-  detailMap: {
-    width: '100%',
-    height: '100%',
-  },
-  mapMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FFD200',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#000',
-  },
-  mapDistanceBadge: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    gap: 4,
-  },
-  mapDistanceText: {
-    color: '#FFD200',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-
-  // Detail Section
-  detailSectionBox: {
-    backgroundColor: '#0F0F11',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#262628',
-  },
-  detailAddressRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  detailSectionLabel: {
-    fontSize: 10,
-    color: '#8E8E93',
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  detailAddressText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  detailDetailsText: {
-    fontSize: 13,
-    color: '#CCCCCC',
-  },
-  detailSectionHeader: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-
-  // Grid
-  detailGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  detailGridItem: {
-    flex: 1,
-    backgroundColor: '#0F0F11',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#262628',
-  },
-  detailGridNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 4,
-  },
-  detailGridCap: {
-    fontSize: 10,
-    color: '#666668',
-    marginTop: 1,
-  },
-  detailGridLabel: {
-    fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-
-  // Prices
-  priceRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  priceCard: {
-    flex: 1,
-    backgroundColor: '#0F0F11',
-    borderRadius: 12,
-    padding: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#262628',
-  },
-  priceVehicle: {
-    fontSize: 11,
-    color: '#8E8E93',
-    marginBottom: 4,
-  },
-  priceValue: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#FFD200',
-  },
-  priceUnit: {
-    fontSize: 10,
-    color: '#666668',
-    marginTop: 2,
-  },
-
-  // Navigate Button
-  navigateButton: {
-    backgroundColor: '#FFD200',
-    height: 50,
-    borderRadius: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navigateButtonText: {
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: 'bold',
-    letterSpacing: 0.8,
   },
 
   // Filter Modal
