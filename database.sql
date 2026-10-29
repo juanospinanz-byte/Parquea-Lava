@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   correo VARCHAR(150) NOT NULL UNIQUE,
   contrasena VARCHAR(255) NOT NULL,
   rol ENUM('dueno_parqueadero', 'cliente') NOT NULL,
+  ciudad VARCHAR(100) DEFAULT NULL,
   fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

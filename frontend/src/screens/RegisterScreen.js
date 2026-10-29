@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import CityPickerModal from '../components/CityPickerModal';
 
 const RegisterScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -23,12 +24,19 @@ const RegisterScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('dueno_parqueadero'); // default as shown in screenshot
+  const [city, setCity] = useState(null);
+  const [cityPickerVisible, setCityPickerVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const { isTablet, isWideLayout } = useResponsive();
 
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password) {
       Alert.alert('Campos requeridos', 'Por favor, completa todos los campos marcados con *');
+      return;
+    }
+
+    if (role === 'cliente' && !city) {
+      Alert.alert('Ciudad requerida', 'Selecciona la ciudad en la que vives.');
       return;
     }
 
@@ -44,6 +52,7 @@ const RegisterScreen = ({ navigation }) => {
         correo: email.trim(),
         contrasena: password,
         rol: role,
+        ciudad: role === 'cliente' ? city.nombre : null,
       });
 
       const { token, usuario } = response.data;
@@ -247,6 +256,26 @@ const RegisterScreen = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
 
+                {/* Ciudad (solo clientes): define el mapa y los parqueaderos que verá */}
+                {role === 'cliente' && (
+                  <>
+                    <Text style={styles.label}>
+                      CIUDAD DONDE VIVES <Text style={styles.requiredStar}>*</Text>
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.inputWrapper, styles.cityField]}
+                      onPress={() => setCityPickerVisible(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="location-outline" size={18} color="#FFD200" />
+                      <Text style={[styles.cityText, !city && styles.cityPlaceholder]}>
+                        {city ? city.nombre : 'Selecciona tu ciudad'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={18} color="#888888" />
+                    </TouchableOpacity>
+                  </>
+                )}
+
                 {/* Botón Registrarse */}
                 <TouchableOpacity
                   style={[styles.registerButton, loading && styles.buttonDisabled]}
@@ -265,6 +294,16 @@ const RegisterScreen = ({ navigation }) => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CityPickerModal
+        visible={cityPickerVisible}
+        selected={city?.nombre}
+        onSelect={(selectedCity) => {
+          setCity(selectedCity);
+          setCityPickerVisible(false);
+        }}
+        onClose={() => setCityPickerVisible(false)}
+      />
     </View>
   );
 };
@@ -358,6 +397,18 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 6,
+  },
+  cityField: {
+    gap: 10,
+    marginBottom: 28,
+  },
+  cityText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  cityPlaceholder: {
+    color: '#666666',
   },
   rolesRow: {
     flexDirection: 'row',

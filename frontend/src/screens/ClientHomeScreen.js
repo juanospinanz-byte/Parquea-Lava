@@ -16,10 +16,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import { hasValidCoords } from '../utils/maps';
+import { findCity } from '../constants/cities';
+import CityPickerModal from '../components/CityPickerModal';
 
 // Bogotá center as reference default
 const DEFAULT_USER_COORDS = {
@@ -56,13 +58,30 @@ const formatDistance = (km, fallbackIndex = 0) => {
   return `A ${km.toFixed(1)}km`;
 };
 
-const formatPrice = (value) => `$${parseFloat(value || 0).toLocaleString()}`;
-
 const getTotalDisponibles = (item) =>
   (item.motos_disponibles || 0) + (item.carros_disponibles || 0) + (item.camiones_disponibles || 0);
 
-// US05: cada cuánto se refresca la lista/mapa mientras la pantalla está visible
+// US05: cada cuánto se refresca la lista mientras la pantalla está visible
 const REFRESH_INTERVAL_MS = 10000;
+
+// Radio (km) que se considera "la ciudad" del usuario, cubre el área metropolitana
+const CITY_RADIUS_KM = 30;
+// Solo se vuelve a consultar el nombre de la ciudad si el usuario se movió más de esto
+const REGEOCODE_DISTANCE_KM = 2;
+
+const isInsideCity = (coords, city) =>
+  !!city &&
+  calculateDistanceKm(coords.latitude, coords.longitude, city.latitude, city.longitude) <=
+    CITY_RADIUS_KM;
+
+const getCityName = async (coords) => {
+  try {
+    const [place] = await Location.reverseGeocodeAsync(coords);
+    return place?.city || place?.subregion || place?.region || null;
+  } catch (e) {
+    return null;
+  }
+};
 
 const ClientHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
@@ -72,10 +91,14 @@ const ClientHomeScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [userLocation, setUserLocation] = useState(DEFAULT_USER_COORDS);
+  // true cuando ya se tiene una posición real del GPS (no la de Bogotá por defecto)
+  const [hasRealLocation, setHasRealLocation] = useState(false);
+  const [userCity, setUserCity] = useState(null);
+  const lastGeocodedRef = useRef(null);
 
-  // US05: parqueadero seleccionado en el mapa
-  const [mapSelectedId, setMapSelectedId] = useState(null);
-  const mapRef = useRef(null);
+  // Ciudad elegida al registrarse: los resultados se basan en ella
+  const [homeCity, setHomeCity] = useState(null);
+  const [cityPickerVisible, setCityPickerVisible] = useState(false);
 
   // Modals state
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -89,21 +112,74 @@ const ClientHomeScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     const getUserData = async () => {
-      if (route.params?.user?.nombre) {
-        setUserName(route.params.user.nombre);
-        setUserEmail(route.params.user.correo || '');
-      } else {
+      let userData = route.params?.user?.nombre ? route.params.user : null;
+      if (!userData) {
         const userDataStr = await AsyncStorage.getItem('userData');
-        if (userDataStr) {
-          const userData = JSON.parse(userDataStr);
-          setUserName(userData.nombre);
-          setUserEmail(userData.correo || '');
-        }
+        if (userDataStr) userData = JSON.parse(userDataStr);
+      }
+      if (userData) {
+        setUserName(userData.nombre);
+        setUserEmail(userData.correo || '');
+        setHomeCity(findCity(userData.ciudad));
       }
     };
     getUserData();
-    requestUserLocation();
   }, []);
+
+  const changeHomeCity = async (city) => {
+    setCityPickerVisible(false);
+    setHomeCity(city);
+    try {
+      const userDataStr = await AsyncStorage.getItem('userData');
+      if (userDataStr) {
+        const userData = JSON.parse(userDataStr);
+        await AsyncStorage.setItem('userData', JSON.stringify({ ...userData, ciudad: city.nombre }));
+      }
+      await api.put('/api/auth/ciudad', { ciudad: city.nombre });
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Aviso', 'La ciudad se cambió en este celular, pero no se pudo guardar en tu cuenta.');
+    }
+  };
+
+  // Sigue la ubicación del usuario en tiempo real mientras la pantalla está visible
+  useFocusEffect(
+    useCallback(() => {
+      let subscription = null;
+      let cancelled = false;
+
+      const startWatching = async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted' || cancelled) return;
+
+          // Última posición conocida del celular para no esperar al GPS
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (lastKnown && !cancelled) handleLocationUpdate(lastKnown);
+
+          // Sin mapa basta con precisión media: solo se usa para distancias y ciudad
+          const sub = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              distanceInterval: 50,
+              timeInterval: 5000,
+            },
+            handleLocationUpdate
+          );
+          if (cancelled) sub.remove();
+          else subscription = sub;
+        } catch (e) {
+          // Keep default Bogotá coords
+        }
+      };
+      startWatching();
+
+      return () => {
+        cancelled = true;
+        subscription?.remove();
+      };
+    }, [])
+  );
 
   // Refresca al volver a la pantalla y periódicamente para mantener la disponibilidad al día
   useFocusEffect(
@@ -114,30 +190,24 @@ const ClientHomeScreen = ({ navigation, route }) => {
     }, [])
   );
 
-  const centerMapOn = (coords) => {
-    mapRef.current?.animateToRegion(
-      { ...coords, latitudeDelta: 0.04, longitudeDelta: 0.04 },
-      800
-    );
-  };
+  const handleLocationUpdate = async (loc) => {
+    const coords = {
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    };
+    setUserLocation(coords);
+    setHasRealLocation(true);
 
-  const requestUserLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        const coords = {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        };
-        setUserLocation(coords);
-        centerMapOn(coords);
-      }
-    } catch (e) {
-      // Keep default Bogotá coords
-    }
+    // La geocodificación inversa tiene límite de uso: solo se repite al moverse bastante
+    const last = lastGeocodedRef.current;
+    const moved = last
+      ? calculateDistanceKm(last.latitude, last.longitude, coords.latitude, coords.longitude)
+      : null;
+    if (last && moved < REGEOCODE_DISTANCE_KM) return;
+
+    lastGeocodedRef.current = coords;
+    const gpsCity = await getCityName(coords);
+    if (gpsCity) setUserCity(gpsCity);
   };
 
   // silent: refresco en segundo plano, sin alertas de error
@@ -178,24 +248,42 @@ const ClientHomeScreen = ({ navigation, route }) => {
 
   // Processed and filtered list
   const filteredParqueaderos = useMemo(() => {
+    // Centro de la ciudad que se muestra: la elegida al registrarse o, si no hay, la del GPS
+    const cityCenter = homeCity || (hasRealLocation ? userLocation : null);
+    // La distancia se mide desde el usuario si está en esa ciudad; si no, desde el centro de la ciudad
+    const distanceOrigin =
+      hasRealLocation && (!homeCity || isInsideCity(userLocation, homeCity))
+        ? userLocation
+        : cityCenter;
+
     return parqueaderos
       .map((item, index) => {
         let distanceKm = null;
-        if (item.latitud && item.longitud && userLocation) {
-          distanceKm = calculateDistanceKm(
-            userLocation.latitude,
-            userLocation.longitude,
-            parseFloat(item.latitud),
-            parseFloat(item.longitud)
-          );
+        let cityDistanceKm = null;
+        if (hasValidCoords(item)) {
+          const lat = parseFloat(item.latitud);
+          const lng = parseFloat(item.longitud);
+          if (distanceOrigin) {
+            distanceKm = calculateDistanceKm(distanceOrigin.latitude, distanceOrigin.longitude, lat, lng);
+          }
+          if (cityCenter) {
+            cityDistanceKm = calculateDistanceKm(cityCenter.latitude, cityCenter.longitude, lat, lng);
+          }
         }
         return {
           ...item,
           calculatedDistance: distanceKm,
+          cityDistance: cityDistanceKm,
           distanceText: formatDistance(distanceKm, index),
         };
       })
       .filter((item) => {
+        // Sin búsqueda, solo se muestran los parqueaderos de la ciudad del usuario.
+        // Al buscar se consulta en todas las ciudades.
+        if (cityCenter && !searchQuery.trim()) {
+          if (item.cityDistance === null || item.cityDistance > CITY_RADIUS_KM) return false;
+        }
+
         // Search query filter (by name, address, or additional details)
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -221,11 +309,11 @@ const ClientHomeScreen = ({ navigation, route }) => {
         }
         return 0;
       });
-  }, [parqueaderos, searchQuery, vehicleFilter, onlyAvailable, userLocation]);
+  }, [parqueaderos, searchQuery, vehicleFilter, onlyAvailable, userLocation, hasRealLocation, homeCity]);
 
-  // US05: solo los parqueaderos con coordenadas pueden ubicarse en el mapa
-  const mapParqueaderos = filteredParqueaderos.filter((item) => item.latitud && item.longitud);
-  const mapSelected = mapParqueaderos.find((item) => item.id === mapSelectedId);
+  // Nombre de la ciudad que se está mostrando
+  const shownCityName = homeCity?.nombre || userCity;
+  const showingCity = !!(homeCity || hasRealLocation) && !searchQuery.trim();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -260,7 +348,22 @@ const ClientHomeScreen = ({ navigation, route }) => {
       >
         {/* Title Section */}
         <Text style={styles.title}>Parqueaderos</Text>
-        <Text style={styles.subtitle}>Encuentra espacios disponibles cerca de ti</Text>
+        <Text style={styles.subtitle}>
+          {shownCityName
+            ? `Encuentra espacios disponibles en ${shownCityName}`
+            : 'Encuentra espacios disponibles cerca de ti'}
+        </Text>
+
+        {/* Ciudad del cliente: toca para cambiarla */}
+        <TouchableOpacity
+          style={styles.cityChip}
+          onPress={() => setCityPickerVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="location" size={16} color="#FFD200" />
+          <Text style={styles.cityChipText}>{homeCity ? homeCity.nombre : 'Elige tu ciudad'}</Text>
+          <Text style={styles.cityChipAction}>Cambiar</Text>
+        </TouchableOpacity>
 
         {/* Search & Filter Bar */}
         <View style={styles.searchRow}>
@@ -292,124 +395,13 @@ const ClientHomeScreen = ({ navigation, route }) => {
           </TouchableOpacity>
         </View>
 
-        {/* US05: Mapa de parqueaderos cercanos */}
-        <Text style={[styles.sectionTitle, { marginBottom: 14 }]}>MAPA DE PARQUEADEROS</Text>
-        <View style={styles.mapCard}>
-          <View style={[styles.mapContainer, isTablet && styles.mapContainerTablet]}>
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={{
-                ...userLocation,
-                latitudeDelta: 0.04,
-                longitudeDelta: 0.04,
-              }}
-              showsUserLocation
-              showsMyLocationButton={false}
-              toolbarEnabled={false}
-              onPress={(e) => {
-                // En Android tocar un marcador también dispara el onPress del mapa
-                if (e.nativeEvent.action !== 'marker-press') setMapSelectedId(null);
-              }}
-            >
-              {mapParqueaderos.map((item) => {
-                const isSelected = item.id === mapSelectedId;
-                const total = getTotalDisponibles(item);
-                return (
-                  <Marker
-                    key={item.id}
-                    coordinate={{
-                      latitude: parseFloat(item.latitud),
-                      longitude: parseFloat(item.longitud),
-                    }}
-                    onPress={() => setMapSelectedId(item.id)}
-                  >
-                    <View
-                      style={[
-                        styles.mapMarker,
-                        total === 0 && styles.mapMarkerFull,
-                        isSelected && styles.mapMarkerSelected,
-                      ]}
-                    >
-                      <MaterialCommunityIcons name="parking" size={14} color="#000000" />
-                      <Text style={styles.mapMarkerText}>{total}</Text>
-                    </View>
-                  </Marker>
-                );
-              })}
-            </MapView>
-
-            <TouchableOpacity
-              style={styles.locateButton}
-              onPress={() => centerMapOn(userLocation)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="locate" size={20} color="#000000" />
-            </TouchableOpacity>
-
-            {!loading && mapParqueaderos.length === 0 && (
-              <View style={styles.mapEmptyBadge}>
-                <Text style={styles.mapEmptyText}>Sin parqueaderos ubicados en el mapa</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Información clave del parqueadero seleccionado en el mapa */}
-          {mapSelected ? (
-            <View style={styles.mapPreview}>
-              <View style={styles.cardTopRow}>
-                <Text style={styles.cardTitle} numberOfLines={1}>
-                  {mapSelected.nombre || 'Parqueadero'}
-                </Text>
-                <View style={styles.distanceBadge}>
-                  <Text style={styles.distanceText}>{mapSelected.distanceText}</Text>
-                </View>
-              </View>
-
-              <View style={styles.mapPreviewAddressRow}>
-                <Ionicons name="location-outline" size={14} color="#FFD200" />
-                <Text style={styles.mapPreviewAddress} numberOfLines={1}>
-                  {mapSelected.direccion || 'Sin dirección registrada'}
-                </Text>
-              </View>
-
-              <View style={styles.mapPreviewGrid}>
-                {[
-                  { key: 'motos', label: 'Moto', icon: <MaterialCommunityIcons name="motorbike" size={16} color="#FFD200" /> },
-                  { key: 'carros', label: 'Carro', icon: <Ionicons name="car-sport" size={16} color="#FFD200" /> },
-                  { key: 'camiones', label: 'Camión', icon: <MaterialCommunityIcons name="truck-outline" size={16} color="#FFD200" /> },
-                ].map(({ key, label, icon }) => (
-                  <View key={key} style={styles.mapPreviewItem}>
-                    {icon}
-                    <Text style={styles.mapPreviewCount}>
-                      {mapSelected[`${key}_disponibles`] || 0}
-                      <Text style={styles.mapPreviewLabel}> {label}</Text>
-                    </Text>
-                    <Text style={styles.mapPreviewPrice}>
-                      {formatPrice(mapSelected[`${key}_precio`])}/h
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <TouchableOpacity
-                style={styles.detailsButton}
-                onPress={() => openDetail(mapSelected)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.detailsButtonText}>VER DETALLES</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <Text style={styles.mapHint}>
-              Toca un marcador para ver disponibilidad y precio por hora
-            </Text>
-          )}
-        </View>
-
         {/* Section Title */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>RESULTADOS CERCANOS</Text>
+          <Text style={styles.sectionTitle}>
+            {showingCity && shownCityName
+              ? `RESULTADOS CERCANOS EN ${shownCityName.toUpperCase()}`
+              : 'RESULTADOS CERCANOS'}
+          </Text>
           {(vehicleFilter !== 'todos' || onlyAvailable) && (
             <TouchableOpacity
               onPress={() => {
@@ -428,7 +420,11 @@ const ClientHomeScreen = ({ navigation, route }) => {
         ) : filteredParqueaderos.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="car-outline" size={48} color="#3A3A3C" />
-            <Text style={styles.emptyTitle}>No se encontraron parqueaderos</Text>
+            <Text style={styles.emptyTitle}>
+              {showingCity
+                ? `No hay parqueaderos en ${shownCityName || 'tu ciudad'}`
+                : 'No se encontraron parqueaderos'}
+            </Text>
             <Text style={styles.emptySubtitle}>
               Prueba buscando por otra ubicación o ajusta los filtros.
             </Text>
@@ -592,6 +588,12 @@ const ClientHomeScreen = ({ navigation, route }) => {
               <View style={styles.profileRoleBadge}>
                 <Text style={styles.profileRoleText}>CLIENTE</Text>
               </View>
+              {homeCity && (
+                <View style={styles.profileCityRow}>
+                  <Ionicons name="location-outline" size={14} color="#8E8E93" />
+                  <Text style={styles.profileEmail}>{homeCity.nombre}</Text>
+                </View>
+              )}
             </View>
 
             <TouchableOpacity
@@ -605,6 +607,13 @@ const ClientHomeScreen = ({ navigation, route }) => {
           </View>
         </View>
       </Modal>
+
+      <CityPickerModal
+        visible={cityPickerVisible}
+        selected={homeCity?.nombre}
+        onSelect={changeHomeCity}
+        onClose={() => setCityPickerVisible(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -660,7 +669,31 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: '#8E8E93',
+    marginBottom: 12,
+  },
+  cityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#1F1F10',
+    borderWidth: 0.5,
+    borderColor: '#3D3D20',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginBottom: 20,
+  },
+  cityChipText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  cityChipAction: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
 
   // Search & Filter
@@ -716,129 +749,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFD200',
     fontWeight: '600',
-  },
-
-  // US05: Mapa
-  mapCard: {
-    backgroundColor: '#161618',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#262628',
-    overflow: 'hidden',
-    marginBottom: 24,
-  },
-  mapContainer: {
-    height: 220,
-  },
-  mapContainerTablet: {
-    height: 340,
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  mapMarker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFD200',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#000000',
-    gap: 2,
-  },
-  mapMarkerFull: {
-    backgroundColor: '#8E8E93',
-  },
-  mapMarkerSelected: {
-    backgroundColor: '#FFFFFF',
-  },
-  mapMarkerText: {
-    color: '#000000',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  locateButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFD200',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  mapEmptyBadge: {
-    position: 'absolute',
-    bottom: 10,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  mapEmptyText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-  },
-  mapHint: {
-    color: '#8E8E93',
-    fontSize: 12,
-    textAlign: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  mapPreview: {
-    padding: 16,
-  },
-  mapPreviewAddressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 12,
-  },
-  mapPreviewAddress: {
-    flex: 1,
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-  mapPreviewGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  mapPreviewItem: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: '#0F0F11',
-    borderRadius: 10,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#262628',
-  },
-  mapPreviewCount: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  mapPreviewLabel: {
-    color: '#8E8E93',
-    fontWeight: 'normal',
-    fontSize: 11,
-  },
-  mapPreviewPrice: {
-    color: '#FFD200',
-    fontWeight: 'bold',
-    fontSize: 12,
-    marginTop: 2,
   },
 
   // Card
@@ -1082,6 +992,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderWidth: 0.5,
     borderColor: '#3D3D20',
+  },
+  profileCityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
   },
   profileRoleText: {
     color: '#FFD200',

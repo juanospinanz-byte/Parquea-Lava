@@ -21,6 +21,7 @@ import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import { MAP_PROVIDER, hasValidCoords } from '../utils/maps';
 
 const OwnerHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
@@ -213,7 +214,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
 
   // US04: renderizar la mini-vista del mapa en la pantalla principal
   const renderLocationSection = () => {
-    const hasLocation = parqueadero.latitud && parqueadero.longitud;
+    const hasLocation = hasValidCoords(parqueadero);
     const lat = hasLocation ? parseFloat(parqueadero.latitud) : null;
     const lng = hasLocation ? parseFloat(parqueadero.longitud) : null;
 
@@ -237,8 +238,9 @@ const OwnerHomeScreen = ({ navigation, route }) => {
           {hasLocation ? (
             <View style={styles.mapPreviewContainer}>
               <MapView
+                provider={MAP_PROVIDER}
                 style={styles.mapPreview}
-                initialRegion={{
+                region={{
                   latitude: lat,
                   longitude: lng,
                   latitudeDelta: 0.008,
@@ -320,6 +322,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         <View style={styles.mapContainer}>
           <MapView
             ref={mapRef}
+            provider={MAP_PROVIDER}
             style={styles.map}
             initialRegion={{
               latitude: editLatitud || DEFAULT_LOCATION.latitude,

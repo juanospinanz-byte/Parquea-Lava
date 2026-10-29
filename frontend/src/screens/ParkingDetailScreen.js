@@ -18,6 +18,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import { MAP_PROVIDER, hasValidCoords } from '../utils/maps';
 
 // US06: cada cuánto se consulta de nuevo el parqueadero mientras la pantalla está abierta
 const REFRESH_INTERVAL_MS = 5000;
@@ -85,13 +86,17 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     const lat = parseFloat(parqueadero.latitud);
     const lng = parseFloat(parqueadero.longitud);
     const label = encodeURIComponent(parqueadero.nombre || 'Parqueadero');
+    // Ruta en Google Maps desde la ubicación actual; abre la app si está instalada, si no el navegador
+    const googleMapsWeb = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
     const url = Platform.select({
-      ios: `maps:0,0?q=${label}@${lat},${lng}`,
-      android: `geo:0,0?q=${lat},${lng}(${label})`,
-      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+      ios: `comgooglemaps://?daddr=${lat},${lng}&directionsmode=driving`,
+      android: `google.navigation:q=${lat},${lng}`,
+      default: googleMapsWeb,
     });
     Linking.openURL(url).catch(() => {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
+      Linking.openURL(googleMapsWeb).catch(() => {
+        if (Platform.OS === 'ios') Linking.openURL(`maps:0,0?daddr=${lat},${lng}&q=${label}`);
+      });
     });
   };
 
@@ -136,7 +141,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     );
   }
 
-  const hasCoords = parqueadero.latitud && parqueadero.longitud;
+  const hasCoords = hasValidCoords(parqueadero);
 
   const renderAvailability = () => (
     <>
@@ -199,6 +204,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         {hasCoords ? (
           <View style={[styles.mapContainer, isWideLayout && styles.mapContainerWide]}>
             <MapView
+              provider={MAP_PROVIDER}
               style={styles.map}
               region={{
                 latitude: parseFloat(parqueadero.latitud),

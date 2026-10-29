@@ -17,22 +17,20 @@ import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import api from '../services/api';
+import { MAP_PROVIDER, hasValidCoords, geocodeAddress } from '../utils/maps';
 
 const EditLocationScreen = ({ navigation, route }) => {
   const parqueadero = route.params?.parqueadero;
 
-  // Default location (Bogotá, Colombia)
-  const DEFAULT_LOCATION = {
+  // Solo para pintar el mapa mientras llega el GPS; nunca se guarda sin confirmar
+  const FALLBACK_REGION = {
     latitude: 4.7110,
     longitude: -74.0721,
   };
 
-  const initialLat = parqueadero?.latitud
-    ? parseFloat(parqueadero.latitud)
-    : DEFAULT_LOCATION.latitude;
-  const initialLng = parqueadero?.longitud
-    ? parseFloat(parqueadero.longitud)
-    : DEFAULT_LOCATION.longitude;
+  const savedCoordsValid = hasValidCoords(parqueadero);
+  const initialLat = savedCoordsValid ? parseFloat(parqueadero.latitud) : FALLBACK_REGION.latitude;
+  const initialLng = savedCoordsValid ? parseFloat(parqueadero.longitud) : FALLBACK_REGION.longitude;
 
   const [direccion, setDireccion] = useState(
     parqueadero?.direccion && parqueadero.direccion !== 'Sin dirección registrada'
@@ -44,14 +42,45 @@ const EditLocationScreen = ({ navigation, route }) => {
   const [longitud, setLongitud] = useState(initialLng);
   const [saving, setSaving] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [searchingAddress, setSearchingAddress] = useState(false);
+  // true cuando el marcador fue puesto por GPS, búsqueda de dirección o a mano
+  const [coordsConfirmed, setCoordsConfirmed] = useState(savedCoordsValid);
   const mapRef = useRef(null);
 
-  // Pedir ubicación al cargar si no hay coordenadas guardadas
+  const moveMarkerTo = (coords) => {
+    setLatitud(coords.latitude);
+    setLongitud(coords.longitude);
+    setCoordsConfirmed(true);
+    mapRef.current?.animateToRegion(
+      { ...coords, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+      1000
+    );
+  };
+
+  // Pedir ubicación al cargar si no hay coordenadas válidas guardadas
   useEffect(() => {
-    if (!parqueadero?.latitud || !parqueadero?.longitud) {
+    if (!savedCoordsValid) {
       getCurrentLocation();
     }
   }, []);
+
+  const searchAddressOnMap = async () => {
+    if (!direccion.trim()) {
+      Alert.alert('Campo requerido', 'Escribe la dirección para buscarla en el mapa.');
+      return;
+    }
+    setSearchingAddress(true);
+    const coords = await geocodeAddress(direccion);
+    setSearchingAddress(false);
+    if (coords) {
+      moveMarkerTo(coords);
+    } else {
+      Alert.alert(
+        'Dirección no encontrada',
+        'No pudimos ubicar esa dirección. Incluye la ciudad (ej: "Cra 81c #49f-50, Medellín") o toca el mapa para marcarla.'
+      );
+    }
+  };
 
   const getCurrentLocation = async () => {
     try {
@@ -69,20 +98,10 @@ const EditLocationScreen = ({ navigation, route }) => {
         accuracy: Location.Accuracy.High,
       });
 
-      setLatitud(location.coords.latitude);
-      setLongitud(location.coords.longitude);
-
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(
-          {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          },
-          1000
-        );
-      }
+      moveMarkerTo({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'No se pudo obtener la ubicación actual');
@@ -95,6 +114,7 @@ const EditLocationScreen = ({ navigation, route }) => {
     const { latitude, longitude } = event.nativeEvent.coordinate;
     setLatitud(latitude);
     setLongitud(longitude);
+    setCoordsConfirmed(true);
   };
 
   const handleSave = async () => {
@@ -105,11 +125,27 @@ const EditLocationScreen = ({ navigation, route }) => {
 
     try {
       setSaving(true);
+
+      // Si el marcador nunca se ubicó, se toma la posición de la dirección escrita
+      let coords = { latitude: latitud, longitude: longitud };
+      if (!coordsConfirmed) {
+        const geocoded = await geocodeAddress(direccion);
+        if (!geocoded) {
+          Alert.alert(
+            'Marca la ubicación',
+            'No pudimos ubicar la dirección en el mapa. Toca el mapa o usa el botón de GPS para marcar tu parqueadero.'
+          );
+          return;
+        }
+        coords = geocoded;
+        moveMarkerTo(geocoded);
+      }
+
       await api.put('/api/parqueadero/me', {
         direccion: direccion.trim(),
         detalles_ubicacion: detalles.trim() || null,
-        latitud,
-        longitud,
+        latitud: coords.latitude,
+        longitud: coords.longitude,
       });
 
       Alert.alert('¡Listo!', 'La dirección se guardó correctamente.', [
@@ -157,7 +193,9 @@ const EditLocationScreen = ({ navigation, route }) => {
           <View style={styles.mapContainer}>
             <MapView
               ref={mapRef}
+              provider={MAP_PROVIDER}
               style={styles.map}
+              showsUserLocation
               initialRegion={{
                 latitude: latitud,
                 longitude: longitud,
@@ -172,6 +210,7 @@ const EditLocationScreen = ({ navigation, route }) => {
                 onDragEnd={(e) => {
                   setLatitud(e.nativeEvent.coordinate.latitude);
                   setLongitud(e.nativeEvent.coordinate.longitude);
+                  setCoordsConfirmed(true);
                 }}
               >
                 <View style={styles.markerContainer}>
@@ -206,9 +245,26 @@ const EditLocationScreen = ({ navigation, route }) => {
               style={styles.input}
               value={direccion}
               onChangeText={setDireccion}
-              placeholder="Calle 45 #12-30, Bogotá"
+              placeholder="Cra 81c #49f-50, Medellín"
               placeholderTextColor="#5A5A5E"
+              returnKeyType="search"
+              onSubmitEditing={searchAddressOnMap}
             />
+            <TouchableOpacity
+              style={styles.searchAddressBtn}
+              onPress={searchAddressOnMap}
+              disabled={searchingAddress}
+              activeOpacity={0.8}
+            >
+              {searchingAddress ? (
+                <ActivityIndicator size="small" color="#FFD200" />
+              ) : (
+                <>
+                  <Ionicons name="search" size={16} color="#FFD200" />
+                  <Text style={styles.searchAddressText}>UBICAR DIRECCIÓN EN EL MAPA</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
 
           {/* Detalles Adicionales */}
@@ -366,6 +422,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     paddingHorizontal: 16,
     height: 52,
+  },
+  searchAddressBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 44,
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    backgroundColor: '#1F1F10',
+  },
+  searchAddressText: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
   },
 
   // Botón guardar

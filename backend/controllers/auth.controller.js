@@ -5,6 +5,7 @@ const pool = require('../config/db');
 const register = async (req, res) => {
   try {
     const { nombre, correo, contrasena, rol } = req.body;
+    const ciudad = req.body.ciudad?.trim() || null;
 
     // Validación de campos
     if (!nombre || !correo || !contrasena || !rol) {
@@ -13,6 +14,10 @@ const register = async (req, res) => {
 
     if (rol !== 'dueno_parqueadero' && rol !== 'cliente') {
       return res.status(400).json({ mensaje: 'Rol inválido' });
+    }
+
+    if (rol === 'cliente' && !ciudad) {
+      return res.status(400).json({ mensaje: 'La ciudad es obligatoria' });
     }
 
     // Verificar si el usuario ya existe
@@ -27,8 +32,8 @@ const register = async (req, res) => {
 
     // Insertar el usuario
     const [result] = await pool.query(
-      'INSERT INTO usuarios (nombre, correo, contrasena, rol) VALUES (?, ?, ?, ?)',
-      [nombre, correo, hashedPassword, rol]
+      'INSERT INTO usuarios (nombre, correo, contrasena, rol, ciudad) VALUES (?, ?, ?, ?, ?)',
+      [nombre, correo, hashedPassword, rol, ciudad]
     );
 
     const userId = result.insertId;
@@ -47,7 +52,8 @@ const register = async (req, res) => {
         id: userId,
         nombre,
         correo,
-        rol
+        rol,
+        ciudad
       }
     });
 
@@ -94,7 +100,8 @@ const login = async (req, res) => {
         id: user.id,
         nombre: user.nombre,
         correo: user.correo,
-        rol: user.rol
+        rol: user.rol,
+        ciudad: user.ciudad || null
       }
     });
 
@@ -104,7 +111,25 @@ const login = async (req, res) => {
   }
 };
 
+// Cambiar la ciudad del usuario autenticado
+const updateCiudad = async (req, res) => {
+  try {
+    const ciudad = req.body.ciudad?.trim();
+    if (!ciudad) {
+      return res.status(400).json({ mensaje: 'La ciudad es obligatoria' });
+    }
+
+    await pool.query('UPDATE usuarios SET ciudad = ? WHERE id = ?', [ciudad, req.user.userId]);
+    res.json({ mensaje: 'Ciudad actualizada', ciudad });
+
+  } catch (error) {
+    console.error('Error al actualizar la ciudad:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
+  }
+};
+
 module.exports = {
   register,
-  login
+  login,
+  updateCiudad
 };
