@@ -14,23 +14,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import api from '../services/api';
-import { MAP_PROVIDER, hasValidCoords, geocodeAddress } from '../utils/maps';
+import { hasValidCoords, geocodeAddress, openInMaps, ensureLocationPermission } from '../utils/maps';
+
+// De dónde salieron las coordenadas que se van a guardar
+const SOURCE_LABELS = {
+  saved: 'Ubicación guardada',
+  gps: 'GPS · ubicación actual del celular',
+  address: 'Desde la dirección · aproximada',
+};
 
 const EditLocationScreen = ({ navigation, route }) => {
   const parqueadero = route.params?.parqueadero;
-
-  // Solo para pintar el mapa mientras llega el GPS; nunca se guarda sin confirmar
-  const FALLBACK_REGION = {
-    latitude: 4.7110,
-    longitude: -74.0721,
-  };
-
   const savedCoordsValid = hasValidCoords(parqueadero);
-  const initialLat = savedCoordsValid ? parseFloat(parqueadero.latitud) : FALLBACK_REGION.latitude;
-  const initialLng = savedCoordsValid ? parseFloat(parqueadero.longitud) : FALLBACK_REGION.longitude;
 
   const [direccion, setDireccion] = useState(
     parqueadero?.direccion && parqueadero.direccion !== 'Sin dirección registrada'
@@ -38,70 +35,99 @@ const EditLocationScreen = ({ navigation, route }) => {
       : ''
   );
   const [detalles, setDetalles] = useState(parqueadero?.detalles_ubicacion || '');
-  const [latitud, setLatitud] = useState(initialLat);
-  const [longitud, setLongitud] = useState(initialLng);
+  const [coords, setCoords] = useState(
+    savedCoordsValid
+      ? { latitude: parseFloat(parqueadero.latitud), longitude: parseFloat(parqueadero.longitud) }
+      : null
+  );
+  const [coordsSource, setCoordsSource] = useState(savedCoordsValid ? 'saved' : null);
+  // true si las coordenadas salieron de la dirección escrita y el dueño aún no las revisó en Maps
+  const [checkPending, setCheckPending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [searchingAddress, setSearchingAddress] = useState(false);
-  // true cuando el marcador fue puesto por GPS, búsqueda de dirección o a mano
-  const [coordsConfirmed, setCoordsConfirmed] = useState(savedCoordsValid);
-  const mapRef = useRef(null);
+  // Última posición conocida del celular: solo sirve para deducir la ciudad de la dirección
+  const lastKnownRef = useRef(null);
 
-  const moveMarkerTo = (coords) => {
-    setLatitud(coords.latitude);
-    setLongitud(coords.longitude);
-    setCoordsConfirmed(true);
-    mapRef.current?.animateToRegion(
-      { ...coords, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-      1000
+  const label = parqueadero?.nombre || 'Mi parqueadero';
+
+  // Sin pedir permiso: si ya lo dio, se usa su última posición para saber en qué ciudad está
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const last = await Location.getLastKnownPositionAsync();
+        if (last) lastKnownRef.current = last.coords;
+      } catch (e) {
+        // No es necesario: sin esto la dirección solo debe incluir la ciudad
+      }
+    })();
+  }, []);
+
+  const showInMaps = (point = coords) => openInMaps({ ...point, label });
+
+  const askToCheckInMaps = (point, onConfirm) => {
+    Alert.alert(
+      '¿El punto es tu parqueadero?',
+      'La ubicación se calculó a partir de la dirección y puede ser aproximada. Ábrela en Maps para revisarla. Si no es la entrada de tu parqueadero, usa el GPS estando allí.',
+      [
+        { text: 'Ver en Maps', onPress: () => showInMaps(point) },
+        { text: 'Sí, es correcto', onPress: onConfirm },
+      ]
     );
   };
 
-  // Pedir ubicación al cargar si no hay coordenadas válidas guardadas
-  useEffect(() => {
-    if (!savedCoordsValid) {
-      getCurrentLocation();
-    }
-  }, []);
+  const applyGeocodeResult = (result) => {
+    const point = { latitude: result.latitude, longitude: result.longitude };
+    setCoords(point);
+    setCoordsSource('address');
+    setCheckPending(true);
+    setDireccion(result.direccion);
+    return point;
+  };
 
-  const searchAddressOnMap = async () => {
+  const searchAddress = async () => {
     if (!direccion.trim()) {
-      Alert.alert('Campo requerido', 'Escribe la dirección para buscarla en el mapa.');
+      Alert.alert('Campo requerido', 'Escribe la dirección para ubicarla.');
       return;
     }
     setSearchingAddress(true);
-    const coords = await geocodeAddress(direccion);
+    const result = await geocodeAddress(direccion, coords || lastKnownRef.current);
     setSearchingAddress(false);
-    if (coords) {
-      moveMarkerTo(coords);
-    } else {
+    if (!result) {
       Alert.alert(
         'Dirección no encontrada',
-        'No pudimos ubicar esa dirección. Incluye la ciudad (ej: "Cra 81c #49f-50, Medellín") o toca el mapa para marcarla.'
+        'No pudimos ubicar esa dirección. Incluye la ciudad (ej: "Ac. 24 #95a-80, Bogotá") o usa el GPS estando en el parqueadero.'
       );
+      return;
     }
+    const point = applyGeocodeResult(result);
+    Alert.alert(
+      'Revisa la ubicación',
+      `Ubicamos "${result.direccion}". Ábrela en Maps para confirmar que el punto sea tu parqueadero.`,
+      [
+        { text: 'Después', style: 'cancel' },
+        { text: 'Ver en Maps', onPress: () => showInMaps(point) },
+      ]
+    );
   };
 
   const getCurrentLocation = async () => {
     try {
       setLocationLoading(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permiso denegado',
-          'Necesitamos acceso a tu ubicación para configurar el parqueadero.'
-        );
-        return;
-      }
+      if (!(await ensureLocationPermission())) return;
 
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
 
-      moveMarkerTo({
+      setCoords({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       });
+      setCoordsSource('gps');
+      setCheckPending(false);
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'No se pudo obtener la ubicación actual');
@@ -110,42 +136,52 @@ const EditLocationScreen = ({ navigation, route }) => {
     }
   };
 
-  const handleMapPress = (event) => {
-    const { latitude, longitude } = event.nativeEvent.coordinate;
-    setLatitud(latitude);
-    setLongitud(longitude);
-    setCoordsConfirmed(true);
-  };
-
   const handleSave = async () => {
     if (!direccion.trim()) {
       Alert.alert('Campo requerido', 'Debes ingresar la dirección física del parqueadero.');
       return;
     }
 
+    // Si no hay ubicación, se toma la de la dirección escrita (y se pide revisarla)
+    if (!coords) {
+      setSaving(true);
+      const result = await geocodeAddress(direccion, lastKnownRef.current);
+      setSaving(false);
+      if (!result) {
+        Alert.alert(
+          'Marca la ubicación',
+          'No pudimos ubicar la dirección. Usa el botón "Usar mi ubicación" estando en el parqueadero.'
+        );
+        return;
+      }
+      const point = applyGeocodeResult(result);
+      askToCheckInMaps(point, () => {
+        setCheckPending(false);
+        saveLocation(point, result.direccion);
+      });
+      return;
+    }
+
+    if (checkPending) {
+      askToCheckInMaps(coords, () => {
+        setCheckPending(false);
+        saveLocation(coords, direccion);
+      });
+      return;
+    }
+
+    saveLocation(coords, direccion);
+  };
+
+  const saveLocation = async (point, address) => {
     try {
       setSaving(true);
 
-      // Si el marcador nunca se ubicó, se toma la posición de la dirección escrita
-      let coords = { latitude: latitud, longitude: longitud };
-      if (!coordsConfirmed) {
-        const geocoded = await geocodeAddress(direccion);
-        if (!geocoded) {
-          Alert.alert(
-            'Marca la ubicación',
-            'No pudimos ubicar la dirección en el mapa. Toca el mapa o usa el botón de GPS para marcar tu parqueadero.'
-          );
-          return;
-        }
-        coords = geocoded;
-        moveMarkerTo(geocoded);
-      }
-
       await api.put('/api/parqueadero/me', {
-        direccion: direccion.trim(),
+        direccion: address.trim(),
         detalles_ubicacion: detalles.trim() || null,
-        latitud: coords.latitude,
-        longitud: coords.longitude,
+        latitud: point.latitude,
+        longitud: point.longitude,
       });
 
       Alert.alert('¡Listo!', 'La dirección se guardó correctamente.', [
@@ -189,51 +225,62 @@ const EditLocationScreen = ({ navigation, route }) => {
           <Text style={styles.title}>Editar Dirección</Text>
           <Text style={styles.subtitle}>Ubica tu parqueadero para los clientes</Text>
 
-          {/* Mapa */}
-          <View style={styles.mapContainer}>
-            <MapView
-              ref={mapRef}
-              provider={MAP_PROVIDER}
-              style={styles.map}
-              showsUserLocation
-              initialRegion={{
-                latitude: latitud,
-                longitude: longitud,
-                latitudeDelta: 0.008,
-                longitudeDelta: 0.008,
-              }}
-              onPress={handleMapPress}
-            >
-              <Marker
-                coordinate={{ latitude: latitud, longitude: longitud }}
-                draggable
-                onDragEnd={(e) => {
-                  setLatitud(e.nativeEvent.coordinate.latitude);
-                  setLongitud(e.nativeEvent.coordinate.longitude);
-                  setCoordsConfirmed(true);
-                }}
-              >
-                <View style={styles.markerContainer}>
-                  <View style={styles.marker}>
-                    <Ionicons name="location" size={16} color="#000" />
+          {/* Ubicación: se revisa en la app de mapas del celular */}
+          <View style={[styles.locationCard, checkPending && styles.locationCardWarning]}>
+            {coords ? (
+              <>
+                <View style={styles.locationRow}>
+                  <Ionicons name="location" size={22} color="#FFD200" />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={[styles.locationSource, checkPending && styles.locationSourceWarning]}>
+                      {SOURCE_LABELS[coordsSource]}
+                    </Text>
+                    <Text style={styles.locationCoords}>
+                      {coords.latitude.toFixed(6)}, {coords.longitude.toFixed(6)}
+                    </Text>
                   </View>
-                  <View style={styles.markerTail} />
                 </View>
-              </Marker>
-            </MapView>
+                {checkPending && (
+                  <Text style={styles.locationHint}>
+                    Revisa en Maps que el punto sea la entrada de tu parqueadero. Si no lo es, usa el GPS estando allí.
+                  </Text>
+                )}
+              </>
+            ) : (
+              <View style={styles.locationRow}>
+                <Ionicons name="map-outline" size={22} color="#5A5A5E" />
+                <Text style={styles.locationEmpty}>
+                  Aún no has marcado la ubicación. Usa el GPS estando en el parqueadero o ubica la dirección.
+                </Text>
+              </View>
+            )}
 
-            {/* Botón GPS */}
-            <TouchableOpacity
-              style={styles.gpsButton}
-              onPress={getCurrentLocation}
-              disabled={locationLoading}
-            >
-              {locationLoading ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (
-                <Ionicons name="locate" size={20} color="#000" />
-              )}
-            </TouchableOpacity>
+            <View style={styles.locationButtons}>
+              <TouchableOpacity
+                style={styles.gpsButton}
+                onPress={getCurrentLocation}
+                disabled={locationLoading}
+                activeOpacity={0.8}
+              >
+                {locationLoading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <>
+                    <Ionicons name="locate" size={16} color="#000" />
+                    <Text style={styles.gpsButtonText}>USAR MI UBICACIÓN</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.mapsButton, !coords && styles.buttonDisabled]}
+                onPress={() => showInMaps()}
+                disabled={!coords}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="map-outline" size={16} color="#FFD200" />
+                <Text style={styles.mapsButtonText}>VER EN MAPS</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Dirección Física */}
@@ -245,14 +292,14 @@ const EditLocationScreen = ({ navigation, route }) => {
               style={styles.input}
               value={direccion}
               onChangeText={setDireccion}
-              placeholder="Cra 81c #49f-50, Medellín"
+              placeholder="Ac. 24 #95a-80, Bogotá"
               placeholderTextColor="#5A5A5E"
               returnKeyType="search"
-              onSubmitEditing={searchAddressOnMap}
+              onSubmitEditing={searchAddress}
             />
             <TouchableOpacity
               style={styles.searchAddressBtn}
-              onPress={searchAddressOnMap}
+              onPress={searchAddress}
               disabled={searchingAddress}
               activeOpacity={0.8}
             >
@@ -261,7 +308,7 @@ const EditLocationScreen = ({ navigation, route }) => {
               ) : (
                 <>
                   <Ionicons name="search" size={16} color="#FFD200" />
-                  <Text style={styles.searchAddressText}>UBICAR DIRECCIÓN EN EL MAPA</Text>
+                  <Text style={styles.searchAddressText}>UBICAR DIRECCIÓN</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -345,58 +392,88 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  // Mapa
-  mapContainer: {
+  // Ubicación
+  locationCard: {
     borderRadius: 16,
-    overflow: 'hidden',
     marginBottom: 24,
-    height: 200,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#2C2C2E',
+    backgroundColor: '#1C1C1E',
+    gap: 12,
   },
-  map: {
-    width: '100%',
-    height: '100%',
+  locationCardWarning: {
+    borderColor: '#FF9F0A',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationSource: {
+    color: '#30D158',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  locationSourceWarning: {
+    color: '#FF9F0A',
+  },
+  locationCoords: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  locationHint: {
+    color: '#FF9F0A',
+    fontSize: 12,
+  },
+  locationEmpty: {
+    flex: 1,
+    marginLeft: 10,
+    color: '#8E8E93',
+    fontSize: 13,
+  },
+  locationButtons: {
+    flexDirection: 'row',
+    gap: 10,
   },
   gpsButton: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFD200',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  markerContainer: {
-    alignItems: 'center',
-  },
-  marker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    gap: 6,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: '#FFD200',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#000',
   },
-  markerTail: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 8,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: '#FFD200',
-    marginTop: -2,
+  gpsButtonText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  mapsButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    backgroundColor: '#1F1F10',
+  },
+  mapsButtonText: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
 
   // Campos
@@ -467,4 +544,3 @@ const styles = StyleSheet.create({
 });
 
 export default EditLocationScreen;
-

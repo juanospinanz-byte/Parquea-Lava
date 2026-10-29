@@ -8,17 +8,14 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  Linking,
-  Platform,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import MapView, { Marker } from 'react-native-maps';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
-import { MAP_PROVIDER, hasValidCoords } from '../utils/maps';
+import { hasValidCoords, openInMaps, openDirections } from '../utils/maps';
 
 // US06: cada cuánto se consulta de nuevo el parqueadero mientras la pantalla está abierta
 const REFRESH_INTERVAL_MS = 5000;
@@ -78,26 +75,19 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     setRefreshing(false);
   };
 
+  const getMapsTarget = () => ({
+    latitude: parseFloat(parqueadero.latitud),
+    longitude: parseFloat(parqueadero.longitud),
+    label: parqueadero.nombre || 'Parqueadero',
+  });
+
+  // Ruta en la app de mapas del celular (Apple Maps, Google Maps, Waze...)
   const openExternalMaps = () => {
     if (!parqueadero.latitud || !parqueadero.longitud) {
       Alert.alert('Sin coordenadas', 'Este parqueadero aún no tiene coordenadas GPS registradas.');
       return;
     }
-    const lat = parseFloat(parqueadero.latitud);
-    const lng = parseFloat(parqueadero.longitud);
-    const label = encodeURIComponent(parqueadero.nombre || 'Parqueadero');
-    // Ruta en Google Maps desde la ubicación actual; abre la app si está instalada, si no el navegador
-    const googleMapsWeb = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-    const url = Platform.select({
-      ios: `comgooglemaps://?daddr=${lat},${lng}&directionsmode=driving`,
-      android: `google.navigation:q=${lat},${lng}`,
-      default: googleMapsWeb,
-    });
-    Linking.openURL(url).catch(() => {
-      Linking.openURL(googleMapsWeb).catch(() => {
-        if (Platform.OS === 'ios') Linking.openURL(`maps:0,0?daddr=${lat},${lng}&q=${label}`);
-      });
-    });
+    openDirections(getMapsTarget());
   };
 
   const handleReserve = () => {
@@ -202,39 +192,24 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         ) : null}
 
         {hasCoords ? (
-          <View style={[styles.mapContainer, isWideLayout && styles.mapContainerWide]}>
-            <MapView
-              provider={MAP_PROVIDER}
-              style={styles.map}
-              region={{
-                latitude: parseFloat(parqueadero.latitud),
-                longitude: parseFloat(parqueadero.longitud),
-                latitudeDelta: 0.006,
-                longitudeDelta: 0.006,
-              }}
-              scrollEnabled={false}
-              zoomEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
-            >
-              <Marker
-                coordinate={{
-                  latitude: parseFloat(parqueadero.latitud),
-                  longitude: parseFloat(parqueadero.longitud),
-                }}
-                title={parqueadero.nombre}
-                description={parqueadero.direccion}
-              >
-                <Ionicons name="location" size={32} color="#FFD200" />
-              </Marker>
-            </MapView>
+          // Sin mapa incrustado: al tocar se abre la app de mapas del celular
+          <TouchableOpacity
+            style={[styles.mapContainer, isWideLayout && styles.mapContainerWide]}
+            onPress={() => openInMaps(getMapsTarget())}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="map" size={30} color="#FFD200" />
+            <Text style={styles.mapOpenText}>VER EN MAPS</Text>
+            <Text style={styles.mapCoordsText}>
+              {parseFloat(parqueadero.latitud).toFixed(5)}, {parseFloat(parqueadero.longitud).toFixed(5)}
+            </Text>
             {distanceText ? (
               <View style={styles.mapDistanceBadge}>
                 <Ionicons name="navigate" size={12} color="#FFD200" />
                 <Text style={styles.mapDistanceText}>{distanceText}</Text>
               </View>
             ) : null}
-          </View>
+          </TouchableOpacity>
         ) : (
           <View style={styles.noMapBox}>
             <Ionicons name="map-outline" size={22} color="#3A3A3C" />
@@ -486,13 +461,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     marginTop: 12,
+    backgroundColor: '#0F0F11',
+    borderWidth: 1,
+    borderColor: '#2C2C2E',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
   },
   mapContainerWide: {
-    height: 260,
+    height: 180,
   },
-  map: {
-    width: '100%',
-    height: '100%',
+  mapOpenText: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
+  },
+  mapCoordsText: {
+    color: '#5A5A5E',
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
   },
   mapDistanceBadge: {
     position: 'absolute',
