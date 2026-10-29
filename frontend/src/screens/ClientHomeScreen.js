@@ -20,6 +20,7 @@ import * as Location from 'expo-location';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
 import { hasValidCoords } from '../utils/maps';
+import { VEHICLE_SINGULAR, withLocalExpiry, formatClock } from '../utils/reservas';
 import { findCity } from '../constants/cities';
 import CityPickerModal from '../components/CityPickerModal';
 
@@ -87,6 +88,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [parqueaderos, setParqueaderos] = useState([]);
+  const [miReserva, setMiReserva] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,8 +215,12 @@ const ClientHomeScreen = ({ navigation, route }) => {
   // silent: refresco en segundo plano, sin alertas de error
   const fetchParqueaderos = async (silent = false) => {
     try {
-      const response = await api.get('/api/parqueadero/todos');
+      const [response, reservaResponse] = await Promise.all([
+        api.get('/api/parqueadero/todos'),
+        api.get('/api/reservas/mia').catch(() => null),
+      ]);
       setParqueaderos(response.data);
+      if (reservaResponse) setMiReserva(withLocalExpiry(reservaResponse.data || null));
     } catch (error) {
       console.error(error);
       if (!silent) {
@@ -353,6 +359,27 @@ const ClientHomeScreen = ({ navigation, route }) => {
             ? `Encuentra espacios disponibles en ${shownCityName}`
             : 'Encuentra espacios disponibles cerca de ti'}
         </Text>
+
+        {/* Reserva activa: toca para ver el detalle y la cuenta regresiva */}
+        {miReserva ? (
+          <TouchableOpacity
+            style={styles.reservaBanner}
+            onPress={() => navigation.navigate('ParkingDetail', { parqueaderoId: miReserva.parqueadero_id })}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color="#000000" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.reservaBannerTitle} numberOfLines={1}>
+                Reserva en {miReserva.parqueadero_nombre || 'parqueadero'}
+              </Text>
+              <Text style={styles.reservaBannerText}>
+                {VEHICLE_SINGULAR[miReserva.tipo_vehiculo]} · {miReserva.placa} · vence a las{' '}
+                {formatClock(miReserva.expiraLocal)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#000000" />
+          </TouchableOpacity>
+        ) : null}
 
         {/* Ciudad del cliente: toca para cambiarla */}
         <TouchableOpacity
@@ -670,6 +697,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#8E8E93',
     marginBottom: 12,
+  },
+  reservaBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFD200',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  reservaBannerTitle: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  reservaBannerText: {
+    color: '#1C1C1E',
+    fontSize: 12,
+    marginTop: 2,
   },
   cityChip: {
     flexDirection: 'row',

@@ -4,6 +4,10 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth.routes');
 const parqueaderoRoutes = require('./routes/parqueadero.routes');
+const reservaRoutes = require('./routes/reserva.routes');
+const initDb = require('./config/initDb');
+
+initDb();
 
 const app = express();
 
@@ -14,6 +18,7 @@ app.use(express.json()); // Parse JSON bodies
 // Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/parqueadero', parqueaderoRoutes);
+app.use('/api/reservas', reservaRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

@@ -9,6 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -16,6 +20,13 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
 import { hasValidCoords, openInMaps, openDirections } from '../utils/maps';
+import {
+  RESERVA_MINUTOS,
+  VEHICLE_SINGULAR,
+  withLocalExpiry,
+  formatCountdown,
+  getErrorMessage,
+} from '../utils/reservas';
 
 // US06: cada cuánto se consulta de nuevo el parqueadero mientras la pantalla está abierta
 const REFRESH_INTERVAL_MS = 5000;
@@ -43,8 +54,26 @@ const ParkingDetailScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [syncError, setSyncError] = useState(false);
+  const [now, setNow] = useState(new Date());
+
+  // Reserva activa del cliente (puede ser de este u otro parqueadero)
+  const [reserva, setReserva] = useState(null);
+  const [reserveModalVisible, setReserveModalVisible] = useState(false);
+  const [selectedType, setSelectedType] = useState(null);
+  const [placa, setPlaca] = useState('');
+  const [reserving, setReserving] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const { isTablet, isWideLayout } = useResponsive();
+
+  // Reloj en tiempo real: avanza cada segundo mientras la pantalla esté visible
+  useFocusEffect(
+    useCallback(() => {
+      setNow(new Date());
+      const clock = setInterval(() => setNow(new Date()), 1000);
+      return () => clearInterval(clock);
+    }, [])
+  );
 
   const fetchParqueadero = useCallback(async () => {
     try {
@@ -60,18 +89,32 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     }
   }, [parqueaderoId]);
 
+  // Si el dueño registra la llegada o la reserva vence, deja de aparecer aquí
+  const fetchMiReserva = useCallback(async () => {
+    try {
+      const response = await api.get('/api/reservas/mia');
+      setReserva(withLocalExpiry(response.data || null));
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
   // Consulta en tiempo real: se refresca al entrar y cada pocos segundos mientras la pantalla esté visible
   useFocusEffect(
     useCallback(() => {
-      fetchParqueadero();
-      const interval = setInterval(fetchParqueadero, REFRESH_INTERVAL_MS);
+      const refresh = () => {
+        fetchParqueadero();
+        fetchMiReserva();
+      };
+      refresh();
+      const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
       return () => clearInterval(interval);
-    }, [fetchParqueadero])
+    }, [fetchParqueadero, fetchMiReserva])
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchParqueadero();
+    await Promise.all([fetchParqueadero(), fetchMiReserva()]);
     setRefreshing(false);
   };
 
@@ -90,8 +133,86 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     openDirections(getMapsTarget());
   };
 
-  const handleReserve = () => {
-    Alert.alert('Reservar espacio', 'La reserva de espacios estará disponible próximamente.');
+  const reservaAqui = reserva && reserva.parqueadero_id === parqueaderoId;
+
+  const openReserveModal = () => {
+    // Si ya tiene una reserva en otro parqueadero, se le ofrece ir a verla
+    if (reserva && !reservaAqui) {
+      Alert.alert(
+        'Ya tienes una reserva',
+        `Tienes una celda reservada en ${reserva.parqueadero_nombre || 'otro parqueadero'}. Cancélala para reservar aquí.`,
+        [
+          { text: 'Cerrar', style: 'cancel' },
+          {
+            text: 'Ver reserva',
+            onPress: () => navigation.push('ParkingDetail', { parqueaderoId: reserva.parqueadero_id }),
+          },
+        ]
+      );
+      return;
+    }
+    const firstAvailable = VEHICLE_TYPES.find(({ key }) => (parqueadero[`${key}_disponibles`] || 0) > 0);
+    setSelectedType(firstAvailable?.key || null);
+    setReserveModalVisible(true);
+  };
+
+  const confirmReserve = async () => {
+    const placaLimpia = placa.toUpperCase().replace(/[\s-]/g, '');
+    if (!selectedType) {
+      Alert.alert('Elige un vehículo', 'Selecciona el tipo de vehículo que vas a parquear.');
+      return;
+    }
+    if (!/^[A-Z0-9]{4,7}$/.test(placaLimpia)) {
+      Alert.alert('Placa inválida', 'Escribe la placa de tu vehículo (ej: ABC123).');
+      return;
+    }
+
+    try {
+      setReserving(true);
+      const response = await api.post('/api/reservas', {
+        parqueadero_id: parqueaderoId,
+        tipo_vehiculo: selectedType,
+        placa: placaLimpia,
+      });
+      setReserva(withLocalExpiry(response.data));
+      setReserveModalVisible(false);
+      fetchParqueadero();
+      Alert.alert(
+        '¡Celda reservada!',
+        `Te guardamos la celda por ${RESERVA_MINUTOS} minutos. Si no llegas a tiempo, se libera sola.`
+      );
+    } catch (error) {
+      console.error(error);
+      Alert.alert('No se pudo reservar', getErrorMessage(error, 'Inténtalo de nuevo en un momento.'));
+      fetchParqueadero();
+      fetchMiReserva();
+    } finally {
+      setReserving(false);
+    }
+  };
+
+  const cancelReserve = () => {
+    Alert.alert('Cancelar reserva', '¿Seguro que quieres liberar la celda reservada?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Sí, cancelar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setCancelling(true);
+            await api.put(`/api/reservas/${reserva.id}/cancelar`);
+            setReserva(null);
+            fetchParqueadero();
+          } catch (error) {
+            console.error(error);
+            Alert.alert('Error', getErrorMessage(error, 'No se pudo cancelar la reserva'));
+            fetchMiReserva();
+          } finally {
+            setCancelling(false);
+          }
+        },
+      },
+    ]);
   };
 
   const renderHeader = () => (
@@ -227,6 +348,160 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     </>
   );
 
+  // Tarjeta con la reserva del cliente en este parqueadero y su cuenta regresiva
+  const renderReserva = () => {
+    const remainingMs = reserva.expiraLocal - now.getTime();
+    const almostOver = remainingMs < 5 * 60 * 1000;
+
+    return (
+      <View style={styles.reservaCard}>
+        <View style={styles.reservaTopRow}>
+          <MaterialCommunityIcons name="ticket-confirmation-outline" size={22} color="#FFD200" />
+          <Text style={styles.reservaTitle}>TU RESERVA</Text>
+        </View>
+        <Text style={styles.reservaInfo}>
+          {VEHICLE_SINGULAR[reserva.tipo_vehiculo]} · Placa {reserva.placa}
+        </Text>
+        <View style={styles.reservaTimerRow}>
+          <Text style={[styles.reservaTimer, almostOver && styles.reservaTimerWarning]}>
+            {remainingMs > 0 ? formatCountdown(remainingMs) : '0:00'}
+          </Text>
+          <Text style={styles.reservaTimerLabel}>
+            {remainingMs > 0 ? 'para llegar antes de que se libere' : 'La reserva está venciendo...'}
+          </Text>
+        </View>
+        <Text style={styles.reservaHint}>Muestra tu placa al llegar al parqueadero.</Text>
+      </View>
+    );
+  };
+
+  const totalDisponibles = VEHICLE_TYPES.reduce(
+    (sum, { key }) => sum + (parqueadero[`${key}_disponibles`] || 0),
+    0
+  );
+
+  const renderBottomButton = () => {
+    if (reservaAqui) {
+      return (
+        <TouchableOpacity
+          style={[styles.cancelReserveButton, cancelling && styles.buttonDisabled]}
+          onPress={cancelReserve}
+          disabled={cancelling}
+          activeOpacity={0.8}
+        >
+          {cancelling ? (
+            <ActivityIndicator size="small" color="#FF5252" />
+          ) : (
+            <Text style={styles.cancelReserveButtonText}>CANCELAR RESERVA</Text>
+          )}
+        </TouchableOpacity>
+      );
+    }
+
+    const sinCeldas = totalDisponibles <= 0;
+    return (
+      <TouchableOpacity
+        style={[styles.reserveButton, (sinCeldas || reserva) && styles.buttonDisabled]}
+        onPress={openReserveModal}
+        disabled={sinCeldas && !reserva}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.reserveButtonText}>
+          {reserva ? 'YA TIENES UNA RESERVA' : sinCeldas ? 'SIN CELDAS LIBRES' : 'RESERVAR ESPACIO'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderReserveModal = () => (
+    <Modal
+      animationType="fade"
+      transparent
+      visible={reserveModalVisible}
+      onRequestClose={() => setReserveModalVisible(false)}
+    >
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Reservar espacio</Text>
+          <Text style={styles.modalSubtitle}>
+            Te guardamos la celda {RESERVA_MINUTOS} minutos mientras llegas.
+          </Text>
+
+          <Text style={styles.modalLabel}>TIPO DE VEHÍCULO</Text>
+          <View style={styles.typeRow}>
+            {VEHICLE_TYPES.map(({ key, singular, icon, IconSet }) => {
+              const libres = parqueadero[`${key}_disponibles`] || 0;
+              const selected = selectedType === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[
+                    styles.typeOption,
+                    selected && styles.typeOptionSelected,
+                    libres <= 0 && styles.buttonDisabled,
+                  ]}
+                  onPress={() => setSelectedType(key)}
+                  disabled={libres <= 0}
+                  activeOpacity={0.8}
+                >
+                  <IconSet name={icon} size={22} color={selected ? '#000000' : '#FFD200'} />
+                  <Text style={[styles.typeOptionText, selected && styles.typeOptionTextSelected]}>
+                    {singular}
+                  </Text>
+                  <Text style={[styles.typeOptionCount, selected && styles.typeOptionTextSelected]}>
+                    {libres > 0 ? `${libres} libres` : 'Lleno'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={styles.modalLabel}>PLACA</Text>
+          <TextInput
+            style={styles.modalInput}
+            value={placa}
+            onChangeText={(text) => setPlaca(text.toUpperCase())}
+            placeholder="ABC123"
+            placeholderTextColor="#5A5A5E"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={8}
+          />
+
+          {selectedType ? (
+            <Text style={styles.modalPrice}>
+              Precio: {formatPrice(parqueadero[`${selectedType}_precio`])} por hora, se paga en el parqueadero
+            </Text>
+          ) : null}
+
+          <View style={styles.modalButtons}>
+            <TouchableOpacity
+              style={styles.modalCancelBtn}
+              onPress={() => setReserveModalVisible(false)}
+              disabled={reserving}
+            >
+              <Text style={styles.modalCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalConfirmBtn, reserving && styles.buttonDisabled]}
+              onPress={confirmReserve}
+              disabled={reserving}
+            >
+              {reserving ? (
+                <ActivityIndicator size="small" color="#000000" />
+              ) : (
+                <Text style={styles.modalConfirmText}>Reservar</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
@@ -253,12 +528,14 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           <View style={[styles.liveDot, syncError && styles.liveDotError]} />
           <Text style={styles.liveText}>
             {syncError
-              ? 'Sin conexión · mostrando últimos datos'
+              ? `Sin conexión · datos de las ${lastUpdated ? formatTime(lastUpdated) : '--:--:--'}`
               : lastUpdated
-              ? `En vivo · actualizado ${formatTime(lastUpdated)}`
+              ? `En vivo · ${formatTime(now)}`
               : 'Sincronizando...'}
           </Text>
         </View>
+
+        {reservaAqui ? renderReserva() : null}
 
         <View style={isWideLayout && styles.columns}>
           <View style={isWideLayout && styles.column}>
@@ -272,10 +549,10 @@ const ParkingDetailScreen = ({ navigation, route }) => {
       </ScrollView>
 
       <View style={[styles.bottomContainer, isTablet && styles.tabletPadding]}>
-        <TouchableOpacity style={styles.reserveButton} onPress={handleReserve} activeOpacity={0.8}>
-          <Text style={styles.reserveButtonText}>RESERVAR ESPACIO</Text>
-        </TouchableOpacity>
+        {renderBottomButton()}
       </View>
+
+      {renderReserveModal()}
     </SafeAreaView>
   );
 };
@@ -577,6 +854,189 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 1,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
+  },
+  cancelReserveButton: {
+    height: 54,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#FF5252',
+    backgroundColor: '#1A0F0F',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelReserveButtonText: {
+    color: '#FF5252',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+
+  // Reserva activa
+  reservaCard: {
+    backgroundColor: '#1F1F10',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#FFD200',
+    marginBottom: 20,
+  },
+  reservaTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reservaTitle: {
+    color: '#FFD200',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
+  },
+  reservaInfo: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  reservaTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginTop: 8,
+  },
+  reservaTimer: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'],
+  },
+  reservaTimerWarning: {
+    color: '#FF9F0A',
+  },
+  reservaTimerLabel: {
+    flex: 1,
+    color: '#8E8E93',
+    fontSize: 12,
+  },
+  reservaHint: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginTop: 6,
+  },
+
+  // Modal de reserva
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: '#2C2C2E',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#8E8E93',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 18,
+  },
+  modalLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#8E8E93',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  typeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+  typeOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    backgroundColor: '#1F1F10',
+    gap: 4,
+  },
+  typeOptionSelected: {
+    backgroundColor: '#FFD200',
+    borderColor: '#FFD200',
+  },
+  typeOptionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  typeOptionCount: {
+    color: '#8E8E93',
+    fontSize: 11,
+  },
+  typeOptionTextSelected: {
+    color: '#000000',
+  },
+  modalInput: {
+    backgroundColor: '#0F0F10',
+    borderWidth: 1,
+    borderColor: '#FFD200',
+    borderRadius: 10,
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    paddingHorizontal: 14,
+    height: 50,
+  },
+  modalPrice: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginTop: 10,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: 20,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  modalCancelText: {
+    color: '#FF5252',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    backgroundColor: '#FFD200',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalConfirmText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,23 +19,45 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
 import { hasValidCoords, openInMaps } from '../utils/maps';
+import { VEHICLE_SINGULAR, withLocalExpiry, formatClock, getErrorMessage } from '../utils/reservas';
+
+// Cada cuánto se revisan reservas nuevas y la disponibilidad mientras la pantalla está abierta
+const REFRESH_INTERVAL_MS = 10000;
+
+const VEHICLE_TYPES = [
+  { key: 'motos', label: 'Motos', icon: 'motorbike', IconSet: MaterialCommunityIcons },
+  { key: 'carros', label: 'Carros', icon: 'car-sport', IconSet: Ionicons },
+  { key: 'camiones', label: 'Camiones', icon: 'truck-outline', IconSet: MaterialCommunityIcons },
+];
+
+const formatPrice = (value) => `$${parseFloat(value || 0).toLocaleString()}`;
+
+// Convierte lo escrito en el formulario a número (vacío = 0); NaN si no es un número válido
+const toNumber = (text) => (text.trim() === '' ? 0 : Number(text.trim()));
 
 const OwnerHomeScreen = ({ navigation, route }) => {
   const [userName, setUserName] = useState('');
   const [parqueadero, setParqueadero] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reservas, setReservas] = useState([]);
+  // Reserva con una acción (llegó / no llegó) en curso
+  const [reservaBusyId, setReservaBusyId] = useState(null);
   const { isTablet, isWideLayout } = useResponsive();
   const tabletPadding = isTablet && styles.tabletPadding;
+  // Tipos de vehículo con un cambio de +/− en curso (evita toques dobles con datos viejos)
+  const adjustingRef = useRef({});
 
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingType, setEditingType] = useState(null); // 'motos', 'carros', 'camiones', 'direccion'
-  
+  const [editingType, setEditingType] = useState(null); // 'motos', 'carros', 'camiones', 'nombre'
+  const [savingModal, setSavingModal] = useState(false);
+
   // Edit Form State
   const [editDisponibles, setEditDisponibles] = useState('');
   const [editMax, setEditMax] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
-  const [editDireccion, setEditDireccion] = useState('');
+  const [editNombre, setEditNombre] = useState('');
 
   useEffect(() => {
     const getUserData = async () => {
@@ -49,28 +72,57 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         }
       }
       setUserName(name);
-      fetchParqueadero();
     };
     getUserData();
   }, []);
 
+  // Se consulta al entrar, al volver a la pantalla y cada pocos segundos para ver reservas nuevas
+  // (sin taparla con el indicador de carga)
   useFocusEffect(
     React.useCallback(() => {
-      fetchParqueadero();
+      const refresh = () => {
+        fetchParqueadero();
+        fetchReservas();
+      };
+      refresh();
+      const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+      return () => clearInterval(interval);
     }, [])
   );
 
-  const fetchParqueadero = async () => {
+  const fetchReservas = async () => {
     try {
-      setLoading(true);
-      const response = await api.get('/api/parqueadero/me');
-      setParqueadero(response.data);
+      const response = await api.get('/api/reservas/parqueadero');
+      setReservas(response.data.map(withLocalExpiry));
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'No se pudo cargar la información del parqueadero');
+    }
+  };
+
+  // Devuelve true si se pudo cargar
+  const fetchParqueadero = async () => {
+    try {
+      const response = await api.get('/api/parqueadero/me');
+      setParqueadero(response.data);
+      return true;
+    } catch (error) {
+      console.error(error);
+      return false;
     } finally {
       setLoading(false);
     }
+  };
+
+  const retryLoad = () => {
+    setLoading(true);
+    fetchParqueadero();
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const [ok] = await Promise.all([fetchParqueadero(), fetchReservas()]);
+    setRefreshing(false);
+    if (!ok) Alert.alert('Sin conexión', 'No se pudo actualizar la información del parqueadero');
   };
 
   const handleLogout = async () => {
@@ -79,10 +131,125 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     navigation.replace('Login');
   };
 
+  const confirmLogout = () => {
+    Alert.alert('Cerrar sesión', '¿Seguro que quieres salir?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Salir', style: 'destructive', onPress: handleLogout },
+    ]);
+  };
+
+  // Registro rápido: − cuando entra un vehículo, + cuando sale
+  const adjustDisponibles = async (type, delta) => {
+    if (adjustingRef.current[type]) return;
+
+    const field = `${type}_disponibles`;
+    const current = parqueadero[field] || 0;
+    const next = current + delta;
+    if (next < 0 || next > (parqueadero[`${type}_max`] || 0)) return;
+
+    adjustingRef.current[type] = true;
+    // Se muestra el cambio al instante y se revierte si el servidor falla
+    setParqueadero((p) => ({ ...p, [field]: next }));
+    try {
+      const response = await api.put('/api/parqueadero/me', { [field]: next });
+      setParqueadero(response.data);
+    } catch (error) {
+      console.error(error);
+      setParqueadero((p) => ({ ...p, [field]: current }));
+      Alert.alert('Error', getErrorMessage(error, 'No se pudo actualizar la disponibilidad'));
+    } finally {
+      adjustingRef.current[type] = false;
+    }
+  };
+
+  // action: 'completar' (el vehículo llegó) o 'cancelar' (no llegó: la celda vuelve a quedar libre)
+  const closeReserva = async (reserva, action) => {
+    try {
+      setReservaBusyId(reserva.id);
+      await api.put(`/api/reservas/${reserva.id}/${action}`);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', getErrorMessage(error, 'No se pudo actualizar la reserva'));
+    } finally {
+      setReservaBusyId(null);
+      fetchReservas();
+      fetchParqueadero();
+    }
+  };
+
+  const confirmNoShow = (reserva) => {
+    Alert.alert(
+      'Liberar celda',
+      `¿El vehículo ${reserva.placa} no llegó? La celda volverá a quedar libre para otros clientes.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Liberar', style: 'destructive', onPress: () => closeReserva(reserva, 'cancelar') },
+      ]
+    );
+  };
+
+  const renderReservas = () => (
+    <>
+      <Text style={styles.sectionTitle}>
+        RESERVAS ACTIVAS{reservas.length > 0 ? ` (${reservas.length})` : ''}
+      </Text>
+      {reservas.length === 0 ? (
+        <View style={styles.reservasEmpty}>
+          <MaterialCommunityIcons name="ticket-outline" size={20} color="#5A5A5E" />
+          <Text style={styles.reservasEmptyText}>No hay reservas por ahora</Text>
+        </View>
+      ) : (
+        reservas.map((reserva) => {
+          const busy = reservaBusyId === reserva.id;
+          return (
+            <View key={reserva.id} style={styles.reservaCard}>
+              <View style={styles.reservaInfoRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reservaPlaca}>{reserva.placa}</Text>
+                  <Text style={styles.reservaDetail} numberOfLines={1}>
+                    {VEHICLE_SINGULAR[reserva.tipo_vehiculo]} · {reserva.cliente_nombre}
+                  </Text>
+                </View>
+                <View style={styles.reservaExpiry}>
+                  <Text style={styles.reservaExpiryLabel}>Vence</Text>
+                  <Text style={styles.reservaExpiryTime}>{formatClock(reserva.expiraLocal)}</Text>
+                </View>
+              </View>
+              <View style={styles.reservaActions}>
+                <TouchableOpacity
+                  style={[styles.reservaNoShowBtn, busy && { opacity: 0.5 }]}
+                  onPress={() => confirmNoShow(reserva)}
+                  disabled={busy}
+                >
+                  <Text style={styles.reservaNoShowText}>NO LLEGÓ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reservaArrivedBtn, busy && { opacity: 0.5 }]}
+                  onPress={() => closeReserva(reserva, 'completar')}
+                  disabled={busy}
+                >
+                  {busy ? (
+                    <ActivityIndicator size="small" color="#000000" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={18} color="#000000" />
+                      <Text style={styles.reservaArrivedText}>LLEGÓ</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })
+      )}
+      <View style={{ height: 12 }} />
+    </>
+  );
+
   const openEditModal = (type) => {
     setEditingType(type);
-    if (type === 'direccion') {
-      setEditDireccion(parqueadero.direccion || '');
+    if (type === 'nombre') {
+      setEditNombre(parqueadero.nombre || '');
     } else {
       setEditDisponibles(parqueadero[`${type}_disponibles`]?.toString() || '0');
       setEditMax(parqueadero[`${type}_max`]?.toString() || '0');
@@ -91,54 +258,131 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     setModalVisible(true);
   };
 
-  const saveChanges = async () => {
-    try {
-      const payload = {};
-      if (editingType === 'direccion') {
-        payload.direccion = editDireccion;
-      } else {
-        payload[`${editingType}_disponibles`] = parseInt(editDisponibles) || 0;
-        payload[`${editingType}_max`] = parseInt(editMax) || 0;
-        payload[`${editingType}_precio`] = parseFloat(editPrecio) || 0;
+  // Arma lo que se envía al servidor; null si algún dato no es válido (ya avisado al dueño)
+  const buildPayload = () => {
+    if (editingType === 'nombre') {
+      const nombre = editNombre.trim();
+      if (!nombre) {
+        Alert.alert('Nombre requerido', 'Escribe el nombre de tu parqueadero');
+        return null;
       }
+      return { nombre };
+    }
 
+    const disponibles = toNumber(editDisponibles);
+    const max = toNumber(editMax);
+    const precio = toNumber(editPrecio);
+
+    if (!Number.isInteger(disponibles) || !Number.isInteger(max) || disponibles < 0 || max < 0) {
+      Alert.alert('Valores inválidos', 'Las celdas deben ser números enteros, sin decimales ni negativos.');
+      return null;
+    }
+    if (Number.isNaN(precio) || precio < 0) {
+      Alert.alert('Precio inválido', 'Escribe el precio por hora solo con números, sin puntos ni signos.');
+      return null;
+    }
+    if (disponibles > max) {
+      Alert.alert('Revisa las celdas', 'Las celdas disponibles no pueden ser más que la capacidad máxima.');
+      return null;
+    }
+
+    return {
+      [`${editingType}_disponibles`]: disponibles,
+      [`${editingType}_max`]: max,
+      [`${editingType}_precio`]: precio,
+    };
+  };
+
+  const saveChanges = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+
+    try {
+      setSavingModal(true);
       const response = await api.put('/api/parqueadero/me', payload);
       setParqueadero(response.data);
       setModalVisible(false);
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'No se pudieron guardar los cambios');
+      Alert.alert('Error', getErrorMessage(error, 'No se pudieron guardar los cambios'));
+    } finally {
+      setSavingModal(false);
     }
   };
 
-  const renderCellCard = (type, title, max, disponibles, precio, iconName, iconType = 'MaterialCommunityIcons') => {
+  const renderCellCard = ({ key, label, icon, IconSet }) => {
+    const max = parqueadero[`${key}_max`] || 0;
+    const disponibles = parqueadero[`${key}_disponibles`] || 0;
+    const canEnter = disponibles > 0;
+    const canLeave = disponibles < max;
+
     return (
-      <View style={styles.card}>
-        <View style={styles.cardLeft}>
-          <View style={styles.iconBox}>
-            {iconType === 'MaterialCommunityIcons' ? (
-              <MaterialCommunityIcons name={iconName} size={24} color="#FFD200" />
-            ) : (
-              <Ionicons name={iconName} size={24} color="#FFD200" />
-            )}
+      <View key={key} style={styles.cellCard}>
+        <View style={styles.cellTopRow}>
+          <View style={[styles.cardLeft, { flex: 1 }]}>
+            <View style={styles.iconBox}>
+              <IconSet name={icon} size={24} color="#FFD200" />
+            </View>
+            <View style={[styles.cardTextContainer, { flex: 1 }]}>
+              <Text style={styles.cardTitle}>Celdas {label}</Text>
+              <Text style={styles.cardSubtitle}>
+                Capacidad {max} · {formatPrice(parqueadero[`${key}_precio`])}/h
+              </Text>
+            </View>
           </View>
-          <View style={styles.cardTextContainer}>
-            <Text style={styles.cardTitle}>{title}</Text>
-            <Text style={styles.cardSubtitle}>Máx: {max} | ${precio}/h</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => openEditModal(key)}
+            accessibilityLabel={`Editar celdas de ${label}`}
+          >
+            <MaterialCommunityIcons name="pencil" size={18} color="#000000" />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.cardRight}>
-          <View style={styles.availableBadge}>
-            <Text style={styles.availableNumber}>{disponibles}</Text>
-            <Text style={styles.availableText}>Disponibles</Text>
+        {/* Contador: − entra un vehículo, + sale un vehículo */}
+        <View style={styles.counterRow}>
+          <TouchableOpacity
+            style={[styles.counterBtn, !canEnter && styles.counterBtnDisabled]}
+            onPress={() => adjustDisponibles(key, -1)}
+            disabled={!canEnter}
+            activeOpacity={0.7}
+            accessibilityLabel={`Registrar entrada de ${label}`}
+          >
+            <Ionicons name="remove" size={22} color="#000000" />
+            <Text style={styles.counterBtnText}>ENTRA</Text>
+          </TouchableOpacity>
+
+          <View style={styles.counterValue}>
+            <Text style={[styles.counterNumber, !canEnter && styles.counterNumberFull]}>
+              {disponibles}
+            </Text>
+            <Text style={styles.counterLabel}>{canEnter ? `de ${max} libres` : 'Lleno'}</Text>
           </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal(type)}>
-            <MaterialCommunityIcons name="check-circle-outline" size={20} color="#000000" />
+
+          <TouchableOpacity
+            style={[styles.counterBtn, !canLeave && styles.counterBtnDisabled]}
+            onPress={() => adjustDisponibles(key, 1)}
+            disabled={!canLeave}
+            activeOpacity={0.7}
+            accessibilityLabel={`Registrar salida de ${label}`}
+          >
+            <Ionicons name="add" size={22} color="#000000" />
+            <Text style={styles.counterBtnText}>SALE</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
+  };
+
+  // Porcentaje de celdas ocupadas sumando todos los tipos de vehículo
+  const getOccupancy = () => {
+    let total = 0;
+    let libres = 0;
+    VEHICLE_TYPES.forEach(({ key }) => {
+      total += parqueadero[`${key}_max`] || 0;
+      libres += Math.min(parqueadero[`${key}_disponibles`] || 0, parqueadero[`${key}_max`] || 0);
+    });
+    return total > 0 ? Math.round(((total - libres) / total) * 100) : null;
   };
 
   // US04: renderizar la mini-vista del mapa en la pantalla principal
@@ -210,7 +454,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     );
   };
 
-  if (loading || !parqueadero) {
+  if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#FFD200" />
@@ -218,16 +462,35 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     );
   }
 
+  if (!parqueadero) {
+    return (
+      <SafeAreaView style={[styles.container, styles.errorContainer]}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <Ionicons name="cloud-offline-outline" size={48} color="#3A3A3C" />
+        <Text style={styles.errorTitle}>No se pudo cargar tu parqueadero</Text>
+        <Text style={styles.errorText}>Revisa tu conexión a internet e inténtalo de nuevo.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={retryLoad} activeOpacity={0.8}>
+          <Text style={styles.retryButtonText}>REINTENTAR</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={confirmLogout} style={{ marginTop: 18 }}>
+          <Text style={styles.logoutButtonText}>CERRAR SESIÓN</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  const occupancy = getOccupancy();
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      
+
       {/* Top Header */}
       <View style={[styles.header, tabletPadding]}>
         <View style={styles.parkappBadge}>
           <Text style={styles.parkappText}>PARKAPP</Text>
         </View>
-        <TouchableOpacity style={styles.profileBadge} onPress={handleLogout}>
+        <TouchableOpacity style={styles.profileBadge} onPress={confirmLogout}>
           <Ionicons name="person-outline" size={20} color="#8E8E93" />
         </TouchableOpacity>
       </View>
@@ -236,43 +499,59 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         style={{ flex: 1 }}
         contentContainerStyle={[styles.scrollContent, tabletPadding]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#FFD200"
+            colors={['#FFD200']}
+          />
+        }
       >
         {/* Title Section */}
+        {userName ? <Text style={styles.greeting}>Hola, {userName}</Text> : null}
         <Text style={styles.mainTitle}>Mi Parqueadero</Text>
         <Text style={styles.mainSubtitle}>Administra las celdas disponibles en tiempo real</Text>
+
+        {/* Nombre del parqueadero (es el que ven los clientes) */}
+        <Text style={styles.sectionTitle}>NOMBRE DEL PARQUEADERO</Text>
+        <View style={styles.card}>
+          <View style={[styles.cardLeft, { flex: 1 }]}>
+            <View style={styles.iconBox}>
+              <MaterialCommunityIcons name="parking" size={24} color="#FFD200" />
+            </View>
+            <View style={[styles.cardTextContainer, { flex: 1 }]}>
+              <Text
+                style={[styles.cardTitle, !parqueadero.nombre && styles.nameEmpty]}
+                numberOfLines={1}
+              >
+                {parqueadero.nombre || 'Sin nombre'}
+              </Text>
+              <Text style={styles.cardSubtitle}>Así te verán los clientes</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal('nombre')}>
+            <MaterialCommunityIcons name="pencil" size={18} color="#000000" />
+          </TouchableOpacity>
+        </View>
+        <View style={{ height: 12 }} />
+
+        {renderReservas()}
 
         <View style={isWideLayout && styles.columns}>
           <View style={isWideLayout && styles.column}>
             {/* Celdas Disponibles Section */}
-            <Text style={styles.sectionTitle}>CELDAS DISPONIBLES</Text>
-            
-            {renderCellCard(
-              'motos', 
-              'Celdas Motos', 
-              parqueadero.motos_max, 
-              parqueadero.motos_disponibles,
-              parqueadero.motos_precio,
-              'motorbike'
-            )}
-            
-            {renderCellCard(
-              'carros', 
-              'Celdas Carros', 
-              parqueadero.carros_max, 
-              parqueadero.carros_disponibles,
-              parqueadero.carros_precio,
-              'car-sport',
-              'Ionicons'
-            )}
-            
-            {renderCellCard(
-              'camiones', 
-              'Celdas Camiones', 
-              parqueadero.camiones_max, 
-              parqueadero.camiones_disponibles,
-              parqueadero.camiones_precio,
-              'truck-outline'
-            )}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>CELDAS DISPONIBLES</Text>
+              {occupancy !== null ? (
+                <Text style={styles.occupancyText}>Ocupación {occupancy}%</Text>
+              ) : null}
+            </View>
+            <Text style={styles.sectionHint}>
+              Toca ENTRA cuando llega un vehículo y SALE cuando se va.
+            </Text>
+
+            {VEHICLE_TYPES.map(renderCellCard)}
           </View>
 
           <View style={isWideLayout && styles.column}>
@@ -282,7 +561,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
             {/* Botón Cerrar Sesión */}
             <TouchableOpacity
               style={styles.logoutButton}
-              onPress={handleLogout}
+              onPress={confirmLogout}
               activeOpacity={0.8}
             >
               <Ionicons name="exit-outline" size={20} color="#FF5252" style={{ marginRight: 8 }} />
@@ -304,19 +583,23 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              {editingType === 'direccion'
-                ? 'Editar Dirección'
-                : `Editar Celdas de ${editingType}`}
+              {editingType === 'nombre'
+                ? 'Editar Nombre'
+                : `Editar Celdas de ${VEHICLE_TYPES.find((v) => v.key === editingType)?.label || ''}`}
             </Text>
 
-            {editingType === 'direccion' ? (
+            {editingType === 'nombre' ? (
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Dirección</Text>
+                <Text style={styles.inputLabel}>Nombre del parqueadero</Text>
                 <TextInput
                   style={styles.input}
-                  value={editDireccion}
-                  onChangeText={setEditDireccion}
+                  value={editNombre}
+                  onChangeText={setEditNombre}
+                  placeholder="Ej: Parqueadero El Centro"
                   placeholderTextColor="#666"
+                  maxLength={100}
+                  autoCapitalize="words"
+                  autoFocus
                 />
               </View>
             ) : (
@@ -327,7 +610,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
                     style={styles.input}
                     value={editDisponibles}
                     onChangeText={setEditDisponibles}
-                    keyboardType="numeric"
+                    keyboardType="number-pad"
                     placeholderTextColor="#666"
                   />
                 </View>
@@ -337,7 +620,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
                     style={styles.input}
                     value={editMax}
                     onChangeText={setEditMax}
-                    keyboardType="numeric"
+                    keyboardType="number-pad"
                     placeholderTextColor="#666"
                   />
                 </View>
@@ -355,11 +638,23 @@ const OwnerHomeScreen = ({ navigation, route }) => {
             )}
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setModalVisible(false)}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setModalVisible(false)}
+                disabled={savingModal}
+              >
                 <Text style={styles.modalCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSaveBtn} onPress={saveChanges}>
-                <Text style={styles.modalSaveText}>Guardar</Text>
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, savingModal && { opacity: 0.6 }]}
+                onPress={saveChanges}
+                disabled={savingModal}
+              >
+                {savingModal ? (
+                  <ActivityIndicator size="small" color="#000000" />
+                ) : (
+                  <Text style={styles.modalSaveText}>Guardar</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -416,6 +711,12 @@ const styles = StyleSheet.create({
   column: {
     flex: 1,
   },
+  greeting: {
+    fontSize: 14,
+    color: '#FFD200',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
   mainTitle: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -469,29 +770,78 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8E8E93',
   },
-  cardRight: {
+  nameEmpty: {
+    color: '#5A5A5E',
+    fontStyle: 'italic',
+  },
+  // Tarjeta de celdas con contador
+  cellCard: {
+    backgroundColor: '#161618',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  cellTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 14,
   },
-  availableBadge: {
+  counterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FFD200',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 10,
+    gap: 10,
   },
-  availableNumber: {
-    color: '#FFD200',
+  counterBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#FFD200',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  counterBtnDisabled: {
+    opacity: 0.3,
+  },
+  counterBtnText: {
+    color: '#000000',
+    fontSize: 12,
     fontWeight: 'bold',
-    fontSize: 14,
-    marginRight: 4,
+    letterSpacing: 0.5,
   },
-  availableText: {
+  counterValue: {
+    minWidth: 84,
+    alignItems: 'center',
+  },
+  counterNumber: {
+    color: '#FFD200',
+    fontSize: 26,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'],
+  },
+  counterNumberFull: {
+    color: '#FF5252',
+  },
+  counterLabel: {
     color: '#8E8E93',
     fontSize: 11,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  occupancyText: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  sectionHint: {
+    color: '#5A5A5E',
+    fontSize: 12,
+    marginBottom: 12,
   },
   editBtn: {
     width: 32,
@@ -702,6 +1052,128 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,
+  },
+
+  // Reservas activas
+  reservasEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#2C2C2E',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 14,
+  },
+  reservasEmptyText: {
+    color: '#5A5A5E',
+    fontSize: 13,
+  },
+  reservaCard: {
+    backgroundColor: '#1F1F10',
+    borderWidth: 1,
+    borderColor: '#FFD200',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  reservaInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  reservaPlaca: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  reservaDetail: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  reservaExpiry: {
+    alignItems: 'flex-end',
+    marginLeft: 10,
+  },
+  reservaExpiryLabel: {
+    color: '#8E8E93',
+    fontSize: 11,
+  },
+  reservaExpiryTime: {
+    color: '#FFD200',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'],
+  },
+  reservaActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  reservaNoShowBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FF5252',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reservaNoShowText: {
+    color: '#FF5252',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  reservaArrivedBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#FFD200',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reservaArrivedText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+
+  // Error al cargar
+  errorContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 30,
+  },
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: 'bold',
+    marginTop: 14,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#8E8E93',
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#FFD200',
+    paddingHorizontal: 28,
+    height: 46,
+    borderRadius: 12,
+    justifyContent: 'center',
+  },
+  retryButtonText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
   },
 });
 
