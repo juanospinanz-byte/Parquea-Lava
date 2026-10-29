@@ -1,0 +1,5 @@
+# Base de datos privada: database.sql se mantiene oculto.
+# Solo existe en el computador de quien tiene el proyecto: no aparece en los commits
+# ni se sube a GitHub, así que nadie más puede verlo.
+# Quien clone el repositorio usa database.example.sql como guía para crear su propia base de datos.
+database.sql
