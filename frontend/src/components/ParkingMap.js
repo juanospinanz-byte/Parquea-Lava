@@ -38,9 +38,14 @@ const MAP_HTML = `<!DOCTYPE html>
 <div id="map"></div>
 <script>
   var map = L.map('map', { zoomControl: false }).setView([4.65, -74.08], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19, subdomains: 'abcd',
-    attribution: '&copy; OpenStreetMap &copy; CARTO'
+  // Esri Dark Gray Canvas: no requiere API key (CARTO ahora sí la exige)
+  var esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  L.tileLayer(esri + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, maxNativeZoom: 16,
+    attribution: '&copy; Esri, HERE, Garmin, &copy; OpenStreetMap'
+  }).addTo(map);
+  L.tileLayer(esri + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, maxNativeZoom: 16
   }).addTo(map);
   var layer = L.layerGroup().addTo(map);
   var meMarker = null;
