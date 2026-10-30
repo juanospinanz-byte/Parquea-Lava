@@ -12,9 +12,9 @@ import {
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
+import { saveSession } from '../services/session';
 import useResponsive from '../hooks/useResponsive';
 import CityPickerModal from '../components/CityPickerModal';
 
@@ -32,6 +32,11 @@ const RegisterScreen = ({ navigation }) => {
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password) {
       Alert.alert('Campos requeridos', 'Por favor, completa todos los campos marcados con *');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      Alert.alert('Correo inválido', 'Escribe un correo válido (ej: nombre@correo.com).');
       return;
     }
 
@@ -57,8 +62,7 @@ const RegisterScreen = ({ navigation }) => {
 
       const { token, usuario } = response.data;
 
-      await AsyncStorage.setItem('userToken', token);
-      await AsyncStorage.setItem('userData', JSON.stringify(usuario));
+      await saveSession(token, usuario);
 
       if (usuario.rol === 'dueno_parqueadero') {
         navigation.replace('OwnerHome', { user: usuario });

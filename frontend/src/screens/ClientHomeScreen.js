@@ -19,8 +19,13 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import useRealtime from '../hooks/useRealtime';
+import ParkingMap from '../components/ParkingMap';
+import { logout } from '../services/session';
 import { hasValidCoords } from '../utils/maps';
 import { VEHICLE_SINGULAR, withLocalExpiry, formatClock } from '../utils/reservas';
+import { estaAbiertoAhora, formatRating, tieneLavado } from '../utils/parqueadero';
+import { scheduleReservaReminder, cancelReservaReminder } from '../utils/notifications';
 import { findCity } from '../constants/cities';
 import CityPickerModal from '../components/CityPickerModal';
 
@@ -63,7 +68,8 @@ const getTotalDisponibles = (item) =>
   (item.motos_disponibles || 0) + (item.carros_disponibles || 0) + (item.camiones_disponibles || 0);
 
 // US05: cada cuánto se refresca la lista mientras la pantalla está visible
-const REFRESH_INTERVAL_MS = 10000;
+// Los cambios llegan al instante por tiempo real; esto es un respaldo por si se cae la conexión
+const REFRESH_INTERVAL_MS = 30000;
 
 // Radio (km) que se considera "la ciudad" del usuario, cubre el área metropolitana
 const CITY_RADIUS_KM = 30;
@@ -109,24 +115,27 @@ const ClientHomeScreen = ({ navigation, route }) => {
   // Filter state
   const [vehicleFilter, setVehicleFilter] = useState('todos'); // 'todos', 'motos', 'carros', 'camiones'
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [viewMode, setViewMode] = useState('lista'); // 'lista' o 'mapa'
 
   const { isTablet } = useResponsive();
 
-  useEffect(() => {
-    const getUserData = async () => {
-      let userData = route.params?.user?.nombre ? route.params.user : null;
-      if (!userData) {
+  // Se relee al volver a la pantalla, por si el nombre se cambió en Mi Perfil
+  useFocusEffect(
+    useCallback(() => {
+      const getUserData = async () => {
+        let userData = null;
         const userDataStr = await AsyncStorage.getItem('userData');
         if (userDataStr) userData = JSON.parse(userDataStr);
-      }
-      if (userData) {
-        setUserName(userData.nombre);
-        setUserEmail(userData.correo || '');
-        setHomeCity(findCity(userData.ciudad));
-      }
-    };
-    getUserData();
-  }, []);
+        if (!userData && route.params?.user?.nombre) userData = route.params.user;
+        if (userData) {
+          setUserName(userData.nombre);
+          setUserEmail(userData.correo || '');
+          setHomeCity(findCity(userData.ciudad));
+        }
+      };
+      getUserData();
+    }, [])
+  );
 
   const changeHomeCity = async (city) => {
     setCityPickerVisible(false);
@@ -192,6 +201,16 @@ const ClientHomeScreen = ({ navigation, route }) => {
     }, [])
   );
 
+  // Tiempo real: disponibilidad, horarios y reservas cambian al instante en la lista y el mapa
+  useRealtime('parqueadero:actualizado', () => fetchParqueaderos(true));
+  useRealtime('reservas:actualizadas', () => fetchParqueaderos(true));
+
+  // Recordatorio 5 minutos antes de que venza la reserva (se quita si ya no hay reserva)
+  useEffect(() => {
+    if (miReserva) scheduleReservaReminder(miReserva);
+    else cancelReservaReminder();
+  }, [miReserva]);
+
   const handleLocationUpdate = async (loc) => {
     const coords = {
       latitude: loc.coords.latitude,
@@ -247,9 +266,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
 
   const handleLogout = async () => {
     setProfileModalVisible(false);
-    await AsyncStorage.removeItem('userToken');
-    await AsyncStorage.removeItem('userData');
-    navigation.replace('Login');
+    await logout(navigation);
   };
 
   // Processed and filtered list
@@ -305,7 +322,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
         if (vehicleFilter === 'camiones' && (item.camiones_disponibles || 0) <= 0) return false;
 
         // Only available filter
-        if (onlyAvailable && getTotalDisponibles(item) <= 0) return false;
+        if (onlyAvailable && (getTotalDisponibles(item) <= 0 || !estaAbiertoAhora(item))) return false;
 
         return true;
       })
@@ -316,6 +333,28 @@ const ClientHomeScreen = ({ navigation, route }) => {
         return 0;
       });
   }, [parqueaderos, searchQuery, vehicleFilter, onlyAvailable, userLocation, hasRealLocation, homeCity]);
+
+  // Pines del mapa: número de celdas libres; rojo si está lleno o cerrado
+  const mapMarkers = useMemo(
+    () =>
+      filteredParqueaderos.filter(hasValidCoords).map((item) => {
+        const libres = getTotalDisponibles(item);
+        const abierto = estaAbiertoAhora(item);
+        const rating = formatRating(item);
+        return {
+          id: item.id,
+          latitude: parseFloat(item.latitud),
+          longitude: parseFloat(item.longitud),
+          label: String(libres),
+          available: abierto && libres > 0,
+          title: item.nombre || 'Parqueadero',
+          subtitle: `${abierto ? `${libres} celdas libres` : 'Cerrado ahora'}${rating ? ` · ★ ${rating}` : ''}${
+            item.distanceText ? ` · ${item.distanceText}` : ''
+          }`,
+        };
+      }),
+    [filteredParqueaderos]
+  );
 
   // Nombre de la ciudad que se está mostrando
   const shownCityName = homeCity?.nombre || userCity;
@@ -441,8 +480,44 @@ const ClientHomeScreen = ({ navigation, route }) => {
           )}
         </View>
 
+        {/* Lista o mapa */}
+        <View style={styles.viewToggle}>
+          {[
+            { id: 'lista', label: 'LISTA', icon: 'list' },
+            { id: 'mapa', label: 'MAPA', icon: 'map' },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.viewToggleBtn, viewMode === opt.id && styles.viewToggleBtnActive]}
+              onPress={() => setViewMode(opt.id)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name={opt.icon} size={16} color={viewMode === opt.id ? '#000000' : '#FFD200'} />
+              <Text style={[styles.viewToggleText, viewMode === opt.id && styles.viewToggleTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Parking Lot Cards */}
-        {loading ? (
+        {viewMode === 'mapa' ? (
+          <>
+            <ParkingMap
+              style={styles.map}
+              markers={mapMarkers}
+              userLocation={hasRealLocation ? userLocation : null}
+              center={homeCity || userLocation}
+              onSelect={(id) => {
+                const item = filteredParqueaderos.find((p) => p.id === id);
+                if (item) openDetail(item);
+              }}
+            />
+            <Text style={styles.mapHint}>
+              El número de cada pin son las celdas libres. Rojo: lleno o cerrado. Toca un pin para ver el parqueadero.
+            </Text>
+          </>
+        ) : loading ? (
           <ActivityIndicator size="large" color="#FFD200" style={{ marginTop: 30 }} />
         ) : filteredParqueaderos.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -463,12 +538,17 @@ const ClientHomeScreen = ({ navigation, route }) => {
             const isCamionLow = (item.camiones_disponibles || 0) <= 2 && (item.camiones_disponibles || 0) > 0;
 
             return (
-              <View key={item.id} style={styles.card}>
+              <View key={item.id} style={[styles.card, !estaAbiertoAhora(item) && styles.cardClosed]}>
                 {/* Header: Name and Distance Badge */}
                 <View style={styles.cardTopRow}>
                   <Text style={styles.cardTitle} numberOfLines={1}>
                     {item.nombre || 'Parqueadero'}
                   </Text>
+                  {!estaAbiertoAhora(item) ? (
+                    <View style={styles.closedBadge}>
+                      <Text style={styles.closedBadgeText}>CERRADO</Text>
+                    </View>
+                  ) : null}
                   <View style={styles.distanceBadge}>
                     <Text style={styles.distanceText}>{item.distanceText}</Text>
                   </View>
@@ -478,6 +558,24 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 <Text style={styles.cardAddress} numberOfLines={1}>
                   {item.direccion || 'Sin dirección registrada'}
                 </Text>
+
+                {/* Calificación y lavado */}
+                {formatRating(item) || tieneLavado(item) ? (
+                  <View style={styles.badgesRow}>
+                    {formatRating(item) ? (
+                      <View style={styles.infoBadge}>
+                        <Ionicons name="star" size={12} color="#FFD200" />
+                        <Text style={styles.infoBadgeText}>{formatRating(item)}</Text>
+                      </View>
+                    ) : null}
+                    {tieneLavado(item) ? (
+                      <View style={styles.infoBadge}>
+                        <MaterialCommunityIcons name="car-wash" size={13} color="#FFD200" />
+                        <Text style={styles.infoBadgeText}>Lavado</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
 
                 {/* Availability Pills */}
                 <View style={styles.pillsRow}>
@@ -622,6 +720,30 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 </View>
               )}
             </View>
+
+            <TouchableOpacity
+              style={styles.changePasswordButton}
+              onPress={() => {
+                setProfileModalVisible(false);
+                navigation.navigate('History');
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="receipt-outline" size={20} color="#FFD200" style={{ marginRight: 8 }} />
+              <Text style={styles.changePasswordButtonText}>Mis Reservas</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.changePasswordButton}
+              onPress={() => {
+                setProfileModalVisible(false);
+                navigation.navigate('Profile');
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="person-circle-outline" size={20} color="#FFD200" style={{ marginRight: 8 }} />
+              <Text style={styles.changePasswordButtonText}>Editar Perfil y Contraseña</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.logoutButton}
@@ -806,6 +928,85 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#262628',
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  viewToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    backgroundColor: '#1F1F10',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: '#FFD200',
+    borderColor: '#FFD200',
+  },
+  viewToggleText: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
+  },
+  viewToggleTextActive: {
+    color: '#000000',
+  },
+  map: {
+    height: 440,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#262628',
+  },
+  mapHint: {
+    color: '#5A5A5E',
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  badgesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1F1F10',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  infoBadgeText: {
+    color: '#FFD200',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  cardClosed: {
+    opacity: 0.6,
+  },
+  closedBadge: {
+    backgroundColor: '#3A1515',
+    borderWidth: 0.5,
+    borderColor: '#FF5252',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  closedBadgeText: {
+    color: '#FF5252',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -1051,6 +1252,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     letterSpacing: 0.8,
+  },
+  changePasswordButton: {
+    backgroundColor: '#1F1F10',
+    height: 48,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    marginTop: 10,
+  },
+  changePasswordButtonText: {
+    color: '#FFD200',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   logoutButton: {
     backgroundColor: '#262628',

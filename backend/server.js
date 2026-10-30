@@ -1,32 +1,18 @@
-const express = require('express');
-const cors = require('cors');
 require('dotenv').config();
+const http = require('http');
 
-const authRoutes = require('./routes/auth.routes');
-const parqueaderoRoutes = require('./routes/parqueadero.routes');
-const reservaRoutes = require('./routes/reserva.routes');
+const app = require('./app');
 const initDb = require('./config/initDb');
+const realtime = require('./realtime');
 
 initDb();
 
-const app = express();
-
-// Middlewares
-app.use(cors()); // Allow all origins
-app.use(express.json()); // Parse JSON bodies
-
-// Rutas
-app.use('/api/auth', authRoutes);
-app.use('/api/parqueadero', parqueaderoRoutes);
-app.use('/api/reservas', reservaRoutes);
-
-// Ruta de prueba
-app.get('/', (req, res) => {
-  res.json({ message: 'Bienvenido a la API de Parquea-Lava' });
-});
+// Servidor HTTP compartido por la API y los WebSockets (tiempo real)
+const server = http.createServer(app);
+realtime.init(server);
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });

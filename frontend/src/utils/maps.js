@@ -1,4 +1,4 @@
-import { Alert, Linking, Platform } from 'react-native';
+import { ActionSheetIOS, Alert, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { normalizarDireccion, ciudadCercana, distanciaKm, CITY_RADIUS_KM } from './direccion';
 
@@ -71,8 +71,8 @@ export const geocodeAddress = async (address, near = null) => {
   }
 };
 
-// Abre la app de mapas del celular: Apple Maps en iPhone; en Android la app predeterminada
-// (Google Maps, Waze, etc.) o el selector de apps si hay varias.
+// Abre la app de mapas del celular; si no está instalada, abre la versión web.
+// En Android la app predeterminada (Google Maps, Waze, etc.) o el selector de apps si hay varias.
 const openNativeMaps = (nativeUrl, webUrl) => {
   Linking.openURL(nativeUrl).catch(() => {
     Linking.openURL(webUrl).catch(() => {
@@ -81,18 +81,48 @@ const openNativeMaps = (nativeUrl, webUrl) => {
   });
 };
 
+// iPhone no tiene selector de apps de mapas (siempre abriría Apple Maps), así que se le
+// pregunta al usuario cuál usar. Si la que elige no está instalada, se abre su versión web
+// (los enlaces https de Google Maps y Waze abren la app si existe).
+const chooseIosMapsApp = (apps) => {
+  ActionSheetIOS.showActionSheetWithOptions(
+    {
+      title: 'Abrir con',
+      options: [...apps.map((a) => a.name), 'Cancelar'],
+      cancelButtonIndex: apps.length,
+    },
+    (index) => {
+      if (index < apps.length) openNativeMaps(apps[index].nativeUrl, apps[index].webUrl);
+    }
+  );
+};
+
 // Muestra un punto en la app de mapas
 export const openInMaps = ({ latitude, longitude, label = 'Parqueadero' }) => {
   const name = encodeURIComponent(label);
+  const ll = `${latitude},${longitude}`;
   if (Platform.OS === 'ios') {
-    openNativeMaps(
-      `maps:?q=${name}&ll=${latitude},${longitude}`,
-      `https://maps.apple.com/?q=${name}&ll=${latitude},${longitude}`
-    );
+    chooseIosMapsApp([
+      {
+        name: 'Google Maps',
+        nativeUrl: `comgooglemaps://?q=${ll}&center=${ll}`,
+        webUrl: `https://www.google.com/maps/search/?api=1&query=${ll}`,
+      },
+      {
+        name: 'Waze',
+        nativeUrl: `waze://?ll=${ll}`,
+        webUrl: `https://waze.com/ul?ll=${ll}`,
+      },
+      {
+        name: 'Apple Maps',
+        nativeUrl: `maps:?q=${name}&ll=${ll}`,
+        webUrl: `https://maps.apple.com/?q=${name}&ll=${ll}`,
+      },
+    ]);
   } else {
     openNativeMaps(
-      `geo:${latitude},${longitude}?q=${latitude},${longitude}(${name})`,
-      `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
+      `geo:${ll}?q=${ll}(${name})`,
+      `https://www.google.com/maps/search/?api=1&query=${ll}`
     );
   }
 };
@@ -100,11 +130,25 @@ export const openInMaps = ({ latitude, longitude, label = 'Parqueadero' }) => {
 // Abre la ruta hasta un punto en la app de mapas. Android no tiene un formato estándar
 // de rutas, así que ahí se abre el punto y la app ofrece "Cómo llegar".
 export const openDirections = ({ latitude, longitude, label = 'Parqueadero' }) => {
+  const ll = `${latitude},${longitude}`;
   if (Platform.OS === 'ios') {
-    openNativeMaps(
-      `maps:?daddr=${latitude},${longitude}&dirflg=d`,
-      `https://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=d`
-    );
+    chooseIosMapsApp([
+      {
+        name: 'Google Maps',
+        nativeUrl: `comgooglemaps://?daddr=${ll}&directionsmode=driving`,
+        webUrl: `https://www.google.com/maps/dir/?api=1&destination=${ll}&travelmode=driving`,
+      },
+      {
+        name: 'Waze',
+        nativeUrl: `waze://?ll=${ll}&navigate=yes`,
+        webUrl: `https://waze.com/ul?ll=${ll}&navigate=yes`,
+      },
+      {
+        name: 'Apple Maps',
+        nativeUrl: `maps:?daddr=${ll}&dirflg=d`,
+        webUrl: `https://maps.apple.com/?daddr=${ll}&dirflg=d`,
+      },
+    ]);
   } else {
     openInMaps({ latitude, longitude, label });
   }

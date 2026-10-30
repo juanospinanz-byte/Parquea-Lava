@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,13 +13,19 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import useRealtime from '../hooks/useRealtime';
+import ParkingMap from '../components/ParkingMap';
+import StarRating from '../components/StarRating';
 import { hasValidCoords, openInMaps, openDirections } from '../utils/maps';
+import { scheduleReservaReminder, cancelReservaReminder } from '../utils/notifications';
+import { fotoUrl, formatHorario, estaAbiertoAhora, motivoCerrado } from '../utils/parqueadero';
 import {
   RESERVA_MINUTOS,
   VEHICLE_SINGULAR,
@@ -28,8 +34,8 @@ import {
   getErrorMessage,
 } from '../utils/reservas';
 
-// US06: cada cuánto se consulta de nuevo el parqueadero mientras la pantalla está abierta
-const REFRESH_INTERVAL_MS = 5000;
+// US06: los cambios llegan al instante por tiempo real; esto es un respaldo por si se cae la conexión
+const REFRESH_INTERVAL_MS = 30000;
 
 const VEHICLE_TYPES = [
   { key: 'motos', label: 'Motos', singular: 'Moto', icon: 'motorbike', IconSet: MaterialCommunityIcons },
@@ -61,8 +67,10 @@ const ParkingDetailScreen = ({ navigation, route }) => {
   const [reserveModalVisible, setReserveModalVisible] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
   const [placa, setPlaca] = useState('');
+  const [selectedServicio, setSelectedServicio] = useState(null); // lavado opcional (id)
   const [reserving, setReserving] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [opiniones, setOpiniones] = useState([]);
 
   const { isTablet, isWideLayout } = useResponsive();
 
@@ -89,6 +97,15 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     }
   }, [parqueaderoId]);
 
+  const fetchOpiniones = useCallback(async () => {
+    try {
+      const response = await api.get(`/api/parqueadero/${parqueaderoId}/calificaciones`);
+      setOpiniones(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [parqueaderoId]);
+
   // Si el dueño registra la llegada o la reserva vence, deja de aparecer aquí
   const fetchMiReserva = useCallback(async () => {
     try {
@@ -107,14 +124,30 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         fetchMiReserva();
       };
       refresh();
+      fetchOpiniones();
       const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
       return () => clearInterval(interval);
-    }, [fetchParqueadero, fetchMiReserva])
+    }, [fetchParqueadero, fetchMiReserva, fetchOpiniones])
   );
+
+  // Tiempo real: el servidor avisa cuando cambia este parqueadero o la reserva del cliente
+  useRealtime('parqueadero:actualizado', ({ id }) => {
+    if (id === Number(parqueaderoId)) {
+      fetchParqueadero();
+      fetchOpiniones();
+    }
+  });
+  useRealtime('reservas:actualizadas', fetchMiReserva);
+
+  // Recordatorio 5 minutos antes de que venza la reserva (se quita si ya no hay reserva)
+  useEffect(() => {
+    if (reserva) scheduleReservaReminder(reserva);
+    else cancelReservaReminder();
+  }, [reserva]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchParqueadero(), fetchMiReserva()]);
+    await Promise.all([fetchParqueadero(), fetchMiReserva(), fetchOpiniones()]);
     setRefreshing(false);
   };
 
@@ -153,6 +186,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     }
     const firstAvailable = VEHICLE_TYPES.find(({ key }) => (parqueadero[`${key}_disponibles`] || 0) > 0);
     setSelectedType(firstAvailable?.key || null);
+    setSelectedServicio(null);
     setReserveModalVisible(true);
   };
 
@@ -173,6 +207,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         parqueadero_id: parqueaderoId,
         tipo_vehiculo: selectedType,
         placa: placaLimpia,
+        servicio_lavado_id: selectedServicio,
       });
       setReserva(withLocalExpiry(response.data));
       setReserveModalVisible(false);
@@ -220,7 +255,11 @@ const ParkingDetailScreen = ({ navigation, route }) => {
       <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
         <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
       </TouchableOpacity>
-      <TouchableOpacity style={styles.headerBtn}>
+      <TouchableOpacity
+        style={styles.headerBtn}
+        onPress={() => navigation.navigate('Profile')}
+        accessibilityLabel="Mi perfil"
+      >
         <Ionicons name="person-outline" size={20} color="#8E8E93" />
       </TouchableOpacity>
     </View>
@@ -297,6 +336,52 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     </>
   );
 
+  const servicios = parqueadero.servicios_lavado || [];
+
+  // Servicios de lavado del parqueadero (se pueden agregar a la reserva)
+  const renderLavado = () =>
+    servicios.length > 0 ? (
+      <>
+        <Text style={styles.sectionTitle}>LAVADO</Text>
+        <View style={styles.washCard}>
+          {servicios.map((servicio, index) => (
+            <View key={servicio.id} style={[styles.washRow, index > 0 && styles.washRowBorder]}>
+              <MaterialCommunityIcons name="car-wash" size={18} color="#FFD200" />
+              <Text style={styles.washName} numberOfLines={1}>
+                {servicio.nombre}
+              </Text>
+              <Text style={styles.washPrice}>{formatPrice(servicio.precio)}</Text>
+            </View>
+          ))}
+          <Text style={styles.washHint}>Agrégalo al reservar tu celda</Text>
+        </View>
+      </>
+    ) : null;
+
+  // Opiniones de otros clientes
+  const renderOpiniones = () => (
+    <>
+      <Text style={styles.sectionTitle}>OPINIONES</Text>
+      {opiniones.length === 0 ? (
+        <View style={styles.noOpinions}>
+          <Ionicons name="chatbubble-ellipses-outline" size={18} color="#5A5A5E" />
+          <Text style={styles.noOpinionsText}>Todavía nadie ha calificado este parqueadero</Text>
+        </View>
+      ) : (
+        opiniones.slice(0, 5).map((opinion) => (
+          <View key={opinion.id} style={styles.opinionCard}>
+            <View style={styles.opinionTopRow}>
+              <Text style={styles.opinionName}>{opinion.cliente_nombre}</Text>
+              <StarRating value={opinion.estrellas} size={13} />
+            </View>
+            {opinion.comentario ? <Text style={styles.opinionText}>{opinion.comentario}</Text> : null}
+          </View>
+        ))
+      )}
+      <View style={{ height: 20 }} />
+    </>
+  );
+
   const renderLocation = () => (
     <>
       <Text style={styles.sectionTitle}>DIRECCIÓN & UBICACIÓN</Text>
@@ -313,17 +398,28 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         ) : null}
 
         {hasCoords ? (
-          // Sin mapa incrustado: al tocar se abre la app de mapas del celular
+          // Mapa con el punto del parqueadero: al tocarlo se abre la app de mapas del celular
           <TouchableOpacity
             style={[styles.mapContainer, isWideLayout && styles.mapContainerWide]}
             onPress={() => openInMaps(getMapsTarget())}
             activeOpacity={0.8}
           >
-            <Ionicons name="map" size={30} color="#FFD200" />
-            <Text style={styles.mapOpenText}>VER EN MAPS</Text>
-            <Text style={styles.mapCoordsText}>
-              {parseFloat(parqueadero.latitud).toFixed(5)}, {parseFloat(parqueadero.longitud).toFixed(5)}
-            </Text>
+            <ParkingMap
+              style={StyleSheet.absoluteFill}
+              interactive={false}
+              markers={[
+                {
+                  id: parqueadero.id,
+                  latitude: parseFloat(parqueadero.latitud),
+                  longitude: parseFloat(parqueadero.longitud),
+                  label: 'P',
+                },
+              ]}
+            />
+            <View style={styles.mapOpenBadge}>
+              <Ionicons name="map" size={12} color="#000000" />
+              <Text style={styles.mapOpenText}>VER EN MAPS</Text>
+            </View>
             {distanceText ? (
               <View style={styles.mapDistanceBadge}>
                 <Ionicons name="navigate" size={12} color="#FFD200" />
@@ -362,6 +458,11 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         <Text style={styles.reservaInfo}>
           {VEHICLE_SINGULAR[reserva.tipo_vehiculo]} · Placa {reserva.placa}
         </Text>
+        {reserva.servicio_nombre ? (
+          <Text style={styles.reservaWash}>
+            Lavado: {reserva.servicio_nombre} · {formatPrice(reserva.servicio_precio)}
+          </Text>
+        ) : null}
         <View style={styles.reservaTimerRow}>
           <Text style={[styles.reservaTimer, almostOver && styles.reservaTimerWarning]}>
             {remainingMs > 0 ? formatCountdown(remainingMs) : '0:00'}
@@ -399,16 +500,22 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     }
 
     const sinCeldas = totalDisponibles <= 0;
+    const cerrado = !estaAbiertoAhora(parqueadero);
+    const label = reserva
+      ? 'YA TIENES UNA RESERVA'
+      : cerrado
+      ? 'PARQUEADERO CERRADO'
+      : sinCeldas
+      ? 'SIN CELDAS LIBRES'
+      : 'RESERVAR ESPACIO';
     return (
       <TouchableOpacity
-        style={[styles.reserveButton, (sinCeldas || reserva) && styles.buttonDisabled]}
+        style={[styles.reserveButton, (sinCeldas || cerrado || reserva) && styles.buttonDisabled]}
         onPress={openReserveModal}
-        disabled={sinCeldas && !reserva}
+        disabled={(sinCeldas || cerrado) && !reserva}
         activeOpacity={0.8}
       >
-        <Text style={styles.reserveButtonText}>
-          {reserva ? 'YA TIENES UNA RESERVA' : sinCeldas ? 'SIN CELDAS LIBRES' : 'RESERVAR ESPACIO'}
-        </Text>
+        <Text style={styles.reserveButtonText}>{label}</Text>
       </TouchableOpacity>
     );
   };
@@ -471,9 +578,44 @@ const ParkingDetailScreen = ({ navigation, route }) => {
             maxLength={8}
           />
 
+          {servicios.length > 0 ? (
+            <>
+              <Text style={[styles.modalLabel, { marginTop: 18 }]}>LAVADO (OPCIONAL)</Text>
+              <View style={styles.washOptions}>
+                {[{ id: null, nombre: 'Sin lavado' }, ...servicios].map((servicio) => {
+                  const selected = selectedServicio === servicio.id;
+                  return (
+                    <TouchableOpacity
+                      key={servicio.id ?? 'ninguno'}
+                      style={[styles.washOption, selected && styles.typeOptionSelected]}
+                      onPress={() => setSelectedServicio(servicio.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[styles.washOptionText, selected && styles.typeOptionTextSelected]}
+                        numberOfLines={1}
+                      >
+                        {servicio.nombre}
+                      </Text>
+                      {servicio.id ? (
+                        <Text style={[styles.typeOptionCount, selected && styles.typeOptionTextSelected]}>
+                          {formatPrice(servicio.precio)}
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
           {selectedType ? (
             <Text style={styles.modalPrice}>
-              Precio: {formatPrice(parqueadero[`${selectedType}_precio`])} por hora, se paga en el parqueadero
+              Precio: {formatPrice(parqueadero[`${selectedType}_precio`])} por hora
+              {selectedServicio
+                ? ` + lavado ${formatPrice(servicios.find((s) => s.id === selectedServicio)?.precio)}`
+                : ''}
+              , se paga en el parqueadero
             </Text>
           ) : null}
 
@@ -523,6 +665,27 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         <Text style={styles.title}>Detalle Parqueadero</Text>
         <Text style={styles.subtitle}>{parqueadero.nombre || 'Parqueadero'}</Text>
 
+        {/* Foto de la entrada */}
+        {fotoUrl(parqueadero) ? (
+          <Image source={{ uri: fotoUrl(parqueadero) }} style={styles.photo} resizeMode="cover" />
+        ) : null}
+
+        {/* Calificación y horario */}
+        <View style={styles.infoRow}>
+          <View style={styles.infoItem}>
+            <StarRating value={Number(parqueadero.calificacion_promedio) || 0} size={14} />
+            <Text style={styles.infoText}>
+              {Number(parqueadero.calificaciones_total) > 0
+                ? `${Number(parqueadero.calificacion_promedio).toFixed(1)} (${parqueadero.calificaciones_total})`
+                : 'Sin opiniones'}
+            </Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Ionicons name="time-outline" size={15} color="#FFD200" />
+            <Text style={styles.infoText}>{formatHorario(parqueadero)}</Text>
+          </View>
+        </View>
+
         {/* Indicador de sincronización en tiempo real */}
         <View style={styles.liveRow}>
           <View style={[styles.liveDot, syncError && styles.liveDotError]} />
@@ -535,15 +698,24 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           </Text>
         </View>
 
+        {!estaAbiertoAhora(parqueadero) ? (
+          <View style={styles.closedBanner}>
+            <Ionicons name="lock-closed" size={18} color="#FF5252" />
+            <Text style={styles.closedBannerText}>{motivoCerrado(parqueadero)}. No recibe reservas.</Text>
+          </View>
+        ) : null}
+
         {reservaAqui ? renderReserva() : null}
 
         <View style={isWideLayout && styles.columns}>
           <View style={isWideLayout && styles.column}>
             {renderAvailability()}
             {renderPrices()}
+            {renderLavado()}
           </View>
           <View style={isWideLayout && styles.column}>
             {renderLocation()}
+            {renderOpiniones()}
           </View>
         </View>
       </ScrollView>
@@ -748,6 +920,18 @@ const styles = StyleSheet.create({
   mapContainerWide: {
     height: 180,
   },
+  mapOpenBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFD200',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
   mapOpenText: {
     color: '#FFD200',
     fontSize: 12,
@@ -874,6 +1058,146 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
+  // Foto, calificación y horario
+  photo: {
+    width: '100%',
+    height: 180,
+    borderRadius: 16,
+    marginBottom: 12,
+    backgroundColor: '#161618',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    marginBottom: 10,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  infoText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Lavado
+  washCard: {
+    backgroundColor: '#161618',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#262628',
+    marginBottom: 20,
+  },
+  washRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+  },
+  washRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#232325',
+  },
+  washName: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  washPrice: {
+    color: '#FFD200',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  washHint: {
+    color: '#5A5A5E',
+    fontSize: 11,
+    paddingBottom: 6,
+  },
+  washOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  washOption: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    backgroundColor: '#1F1F10',
+    gap: 2,
+  },
+  washOptionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+
+  // Opiniones
+  noOpinions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#2C2C2E',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 14,
+  },
+  noOpinionsText: {
+    flex: 1,
+    color: '#5A5A5E',
+    fontSize: 13,
+  },
+  opinionCard: {
+    backgroundColor: '#161618',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+  },
+  opinionTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  opinionName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  opinionText: {
+    color: '#A0A0A0',
+    fontSize: 13,
+    marginTop: 6,
+  },
+
+  // Parqueadero cerrado
+  closedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1A0F0F',
+    borderWidth: 1,
+    borderColor: '#4A1F1F',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+  },
+  closedBannerText: {
+    flex: 1,
+    color: '#FF8A8A',
+    fontSize: 13,
+  },
+
   // Reserva activa
   reservaCard: {
     backgroundColor: '#1F1F10',
@@ -899,6 +1223,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     marginTop: 8,
+  },
+  reservaWash: {
+    color: '#FFD200',
+    fontSize: 13,
+    marginTop: 4,
   },
   reservaTimerRow: {
     flexDirection: 'row',

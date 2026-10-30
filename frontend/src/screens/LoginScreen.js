@@ -12,9 +12,9 @@ import {
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
+import { saveSession } from '../services/session';
 import useResponsive from '../hooks/useResponsive';
 
 const LoginScreen = ({ navigation }) => {
@@ -39,8 +39,7 @@ const LoginScreen = ({ navigation }) => {
       });
       const { token, usuario } = response.data;
 
-      await AsyncStorage.setItem('userToken', token);
-      await AsyncStorage.setItem('userData', JSON.stringify(usuario));
+      await saveSession(token, usuario);
 
       if (usuario.rol === 'dueno_parqueadero') {
         navigation.replace('OwnerHome', { user: usuario });
@@ -154,12 +153,7 @@ const LoginScreen = ({ navigation }) => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() =>
-                    Alert.alert(
-                      'Recuperación',
-                      'Función de restablecer contraseña próximamente.'
-                    )
-                  }
+                  onPress={() => navigation.navigate('ForgotPassword', { correo: email.trim() })}
                 >
                   <Text style={styles.forgotPasswordText}>¿Olvidó contraseña?</Text>
                 </TouchableOpacity>

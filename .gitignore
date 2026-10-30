@@ -3,3 +3,9 @@
 # no aparece en los commits ni se sube a GitHub.
 .env
 **/.env
+
+# Dependencias: cada persona las instala con npm install
+node_modules/
+
+# Fotos que suben los dueños (cada servidor tiene las suyas)
+backend/uploads/

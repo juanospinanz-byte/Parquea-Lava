@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,18 +11,25 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Switch,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
+import useRealtime from '../hooks/useRealtime';
+import ParkingMap from '../components/ParkingMap';
+import { getStoredUser, logout } from '../services/session';
 import { hasValidCoords, openInMaps } from '../utils/maps';
 import { VEHICLE_SINGULAR, withLocalExpiry, formatClock, getErrorMessage } from '../utils/reservas';
+import { formatPrice, fotoUrl, formatHorario, horaCorta, tieneHorario, formatRating } from '../utils/parqueadero';
+import { notifyNow, isRemotePushEnabled } from '../utils/notifications';
 
-// Cada cuánto se revisan reservas nuevas y la disponibilidad mientras la pantalla está abierta
-const REFRESH_INTERVAL_MS = 10000;
+// Respaldo por si se cae el tiempo real: cada cuánto se consulta de nuevo mientras la pantalla está abierta
+const REFRESH_INTERVAL_MS = 30000;
 
 const VEHICLE_TYPES = [
   { key: 'motos', label: 'Motos', icon: 'motorbike', IconSet: MaterialCommunityIcons },
@@ -30,27 +37,32 @@ const VEHICLE_TYPES = [
   { key: 'camiones', label: 'Camiones', icon: 'truck-outline', IconSet: MaterialCommunityIcons },
 ];
 
-const formatPrice = (value) => `$${parseFloat(value || 0).toLocaleString()}`;
-
 // Convierte lo escrito en el formulario a número (vacío = 0); NaN si no es un número válido
 const toNumber = (text) => (text.trim() === '' ? 0 : Number(text.trim()));
 
-const OwnerHomeScreen = ({ navigation, route }) => {
+const HORA_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+const OwnerHomeScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('');
   const [parqueadero, setParqueadero] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reservas, setReservas] = useState([]);
+  const [servicios, setServicios] = useState([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   // Reserva con una acción (llegó / no llegó) en curso
   const [reservaBusyId, setReservaBusyId] = useState(null);
   const { isTablet, isWideLayout } = useResponsive();
   const tabletPadding = isTablet && styles.tabletPadding;
   // Tipos de vehículo con un cambio de +/− en curso (evita toques dobles con datos viejos)
   const adjustingRef = useRef({});
+  // Reservas ya vistas: las nuevas se avisan con una notificación (null = primera carga)
+  const knownReservasRef = useRef(null);
 
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingType, setEditingType] = useState(null); // 'motos', 'carros', 'camiones', 'nombre'
+  // 'motos', 'carros', 'camiones', 'nombre', 'horario' o 'lavado'
+  const [editingType, setEditingType] = useState(null);
   const [savingModal, setSavingModal] = useState(false);
 
   // Edit Form State
@@ -58,42 +70,53 @@ const OwnerHomeScreen = ({ navigation, route }) => {
   const [editMax, setEditMax] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
   const [editNombre, setEditNombre] = useState('');
+  const [editApertura, setEditApertura] = useState('');
+  const [editCierre, setEditCierre] = useState('');
+  const [edit24h, setEdit24h] = useState(true);
+  const [editServicio, setEditServicio] = useState(null); // servicio de lavado que se edita (null = nuevo)
+  const [editServicioNombre, setEditServicioNombre] = useState('');
+  const [editServicioPrecio, setEditServicioPrecio] = useState('');
 
-  useEffect(() => {
-    const getUserData = async () => {
-      let name = '';
-      if (route.params?.user?.nombre) {
-        name = route.params.user.nombre;
-      } else {
-        const userDataStr = await AsyncStorage.getItem('userData');
-        if (userDataStr) {
-          const userData = JSON.parse(userDataStr);
-          name = userData.nombre;
-        }
-      }
-      setUserName(name);
-    };
-    getUserData();
-  }, []);
-
-  // Se consulta al entrar, al volver a la pantalla y cada pocos segundos para ver reservas nuevas
-  // (sin taparla con el indicador de carga)
+  // Se consulta al entrar y al volver a la pantalla (sin taparla con el indicador de carga);
+  // el nombre se relee por si se cambió en Mi Perfil
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
+      getStoredUser().then((user) => setUserName(user?.nombre || ''));
       const refresh = () => {
         fetchParqueadero();
         fetchReservas();
       };
       refresh();
+      fetchServicios();
       const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
       return () => clearInterval(interval);
     }, [])
   );
 
+  // Tiempo real: una reserva nueva, cancelada o vencida actualiza la pantalla al instante
+  useRealtime('reservas:actualizadas', () => {
+    fetchReservas();
+    fetchParqueadero();
+  });
+
   const fetchReservas = async () => {
     try {
       const response = await api.get('/api/reservas/parqueadero');
-      setReservas(response.data.map(withLocalExpiry));
+      const nuevas = response.data.map(withLocalExpiry);
+
+      // Aviso de reservas nuevas (si el servidor no lo envía ya como push)
+      if (knownReservasRef.current && !isRemotePushEnabled()) {
+        nuevas
+          .filter((r) => !knownReservasRef.current.has(r.id))
+          .forEach((r) =>
+            notifyNow(
+              'Nueva reserva',
+              `${VEHICLE_SINGULAR[r.tipo_vehiculo]} · Placa ${r.placa}${r.servicio_nombre ? ` · ${r.servicio_nombre}` : ''}`
+            )
+          );
+      }
+      knownReservasRef.current = new Set(nuevas.map((r) => r.id));
+      setReservas(nuevas);
     } catch (error) {
       console.error(error);
     }
@@ -113,6 +136,15 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     }
   };
 
+  const fetchServicios = async () => {
+    try {
+      const response = await api.get('/api/lavado');
+      setServicios(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const retryLoad = () => {
     setLoading(true);
     fetchParqueadero();
@@ -120,22 +152,30 @@ const OwnerHomeScreen = ({ navigation, route }) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    const [ok] = await Promise.all([fetchParqueadero(), fetchReservas()]);
+    const [ok] = await Promise.all([fetchParqueadero(), fetchReservas(), fetchServicios()]);
     setRefreshing(false);
     if (!ok) Alert.alert('Sin conexión', 'No se pudo actualizar la información del parqueadero');
-  };
-
-  const handleLogout = async () => {
-    await AsyncStorage.removeItem('userToken');
-    await AsyncStorage.removeItem('userData');
-    navigation.replace('Login');
   };
 
   const confirmLogout = () => {
     Alert.alert('Cerrar sesión', '¿Seguro que quieres salir?', [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Salir', style: 'destructive', onPress: handleLogout },
+      { text: 'Salir', style: 'destructive', onPress: () => logout(navigation) },
     ]);
+  };
+
+  // Abrir / cerrar el parqueadero: cerrado, los clientes no pueden reservar
+  const toggleAbierto = async (abierto) => {
+    const anterior = parqueadero.abierto;
+    setParqueadero((p) => ({ ...p, abierto: abierto ? 1 : 0 }));
+    try {
+      const response = await api.put('/api/parqueadero/me', { abierto });
+      setParqueadero(response.data);
+    } catch (error) {
+      console.error(error);
+      setParqueadero((p) => ({ ...p, abierto: anterior }));
+      Alert.alert('Error', getErrorMessage(error, 'No se pudo cambiar el estado del parqueadero'));
+    }
   };
 
   // Registro rápido: − cuando entra un vehículo, + cuando sale
@@ -160,6 +200,88 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     } finally {
       adjustingRef.current[type] = false;
     }
+  };
+
+  // --- Foto de la entrada ---
+  const uploadPhoto = async (asset) => {
+    try {
+      setUploadingPhoto(true);
+      const response = await api.put('/api/parqueadero/me/foto', { imagen: asset.base64 });
+      setParqueadero(response.data);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', getErrorMessage(error, 'No se pudo subir la foto'));
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const pickPhoto = async (fromCamera) => {
+    try {
+      const options = { mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.6, base64: true };
+      if (fromCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Sin permiso', 'Activa el permiso de la cámara para tomar la foto.');
+          return;
+        }
+      }
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (!result.canceled && result.assets?.[0]?.base64) {
+        uploadPhoto(result.assets[0]);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'No se pudo abrir la cámara o la galería');
+    }
+  };
+
+  const openPhotoOptions = () => {
+    const options = [
+      { text: 'Tomar foto', onPress: () => pickPhoto(true) },
+      { text: 'Elegir de la galería', onPress: () => pickPhoto(false) },
+    ];
+    if (parqueadero.foto) {
+      options.push({ text: 'Quitar foto', style: 'destructive', onPress: removePhoto });
+    }
+    options.push({ text: 'Cancelar', style: 'cancel' });
+    Alert.alert('Foto de la entrada', 'Ayuda a los clientes a reconocer tu parqueadero', options);
+  };
+
+  const removePhoto = async () => {
+    try {
+      setUploadingPhoto(true);
+      const response = await api.delete('/api/parqueadero/me/foto');
+      setParqueadero(response.data);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', getErrorMessage(error, 'No se pudo quitar la foto'));
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // --- Servicios de lavado ---
+  const confirmDeleteServicio = (servicio) => {
+    Alert.alert('Eliminar servicio', `¿Quitar "${servicio.nombre}" de tus servicios de lavado?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const response = await api.delete(`/api/lavado/${servicio.id}`);
+            setServicios(response.data);
+            fetchParqueadero();
+          } catch (error) {
+            console.error(error);
+            Alert.alert('Error', getErrorMessage(error, 'No se pudo eliminar el servicio'));
+          }
+        },
+      },
+    ]);
   };
 
   // action: 'completar' (el vehículo llegó) o 'cancelar' (no llegó: la celda vuelve a quedar libre)
@@ -209,6 +331,14 @@ const OwnerHomeScreen = ({ navigation, route }) => {
                   <Text style={styles.reservaDetail} numberOfLines={1}>
                     {VEHICLE_SINGULAR[reserva.tipo_vehiculo]} · {reserva.cliente_nombre}
                   </Text>
+                  {reserva.servicio_nombre ? (
+                    <View style={styles.reservaWash}>
+                      <MaterialCommunityIcons name="car-wash" size={14} color="#FFD200" />
+                      <Text style={styles.reservaWashText} numberOfLines={1}>
+                        {reserva.servicio_nombre} · {formatPrice(reserva.servicio_precio)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={styles.reservaExpiry}>
                   <Text style={styles.reservaExpiryLabel}>Vence</Text>
@@ -246,10 +376,18 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     </>
   );
 
-  const openEditModal = (type) => {
+  const openEditModal = (type, servicio = null) => {
     setEditingType(type);
     if (type === 'nombre') {
       setEditNombre(parqueadero.nombre || '');
+    } else if (type === 'horario') {
+      setEdit24h(!tieneHorario(parqueadero));
+      setEditApertura(horaCorta(parqueadero.hora_apertura) || '06:00');
+      setEditCierre(horaCorta(parqueadero.hora_cierre) || '22:00');
+    } else if (type === 'lavado') {
+      setEditServicio(servicio);
+      setEditServicioNombre(servicio?.nombre || '');
+      setEditServicioPrecio(servicio ? String(parseFloat(servicio.precio)) : '');
     } else {
       setEditDisponibles(parqueadero[`${type}_disponibles`]?.toString() || '0');
       setEditMax(parqueadero[`${type}_max`]?.toString() || '0');
@@ -267,6 +405,34 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         return null;
       }
       return { nombre };
+    }
+
+    if (editingType === 'horario') {
+      // Vacío = abierto las 24 horas
+      if (edit24h) return { hora_apertura: '', hora_cierre: '' };
+      if (!HORA_REGEX.test(editApertura.trim()) || !HORA_REGEX.test(editCierre.trim())) {
+        Alert.alert('Hora inválida', 'Escribe las horas en formato de 24 horas, por ejemplo 06:00 y 22:00.');
+        return null;
+      }
+      if (editApertura.trim() === editCierre.trim()) {
+        Alert.alert('Revisa el horario', 'La hora de apertura y la de cierre no pueden ser iguales.');
+        return null;
+      }
+      return { hora_apertura: editApertura.trim(), hora_cierre: editCierre.trim() };
+    }
+
+    if (editingType === 'lavado') {
+      const nombre = editServicioNombre.trim();
+      const precio = toNumber(editServicioPrecio);
+      if (!nombre) {
+        Alert.alert('Nombre requerido', 'Escribe el nombre del servicio, por ejemplo "Lavado general".');
+        return null;
+      }
+      if (!editServicioPrecio.trim() || Number.isNaN(precio) || precio < 0) {
+        Alert.alert('Precio inválido', 'Escribe el precio solo con números, sin puntos ni signos.');
+        return null;
+      }
+      return { nombre, precio };
     }
 
     const disponibles = toNumber(editDisponibles);
@@ -299,8 +465,16 @@ const OwnerHomeScreen = ({ navigation, route }) => {
 
     try {
       setSavingModal(true);
-      const response = await api.put('/api/parqueadero/me', payload);
-      setParqueadero(response.data);
+      if (editingType === 'lavado') {
+        const response = editServicio
+          ? await api.put(`/api/lavado/${editServicio.id}`, payload)
+          : await api.post('/api/lavado', payload);
+        setServicios(response.data);
+        fetchParqueadero();
+      } else {
+        const response = await api.put('/api/parqueadero/me', payload);
+        setParqueadero(response.data);
+      }
       setModalVisible(false);
     } catch (error) {
       console.error(error);
@@ -385,6 +559,124 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     return total > 0 ? Math.round(((total - libres) / total) * 100) : null;
   };
 
+  // Estado (abierto / cerrado / fuera de horario) y horario de atención
+  const renderStatus = () => {
+    const abiertoPorDueno = !!Number(parqueadero.abierto);
+    const fueraDeHorario = abiertoPorDueno && !Number(parqueadero.abierto_ahora);
+    const titulo = !abiertoPorDueno ? 'CERRADO' : fueraDeHorario ? 'FUERA DE HORARIO' : 'ABIERTO';
+    const texto = !abiertoPorDueno
+      ? 'Los clientes ven que estás cerrado y no pueden reservar'
+      : fueraDeHorario
+      ? `Abres a las ${horaCorta(parqueadero.hora_apertura)}: mientras tanto no recibes reservas`
+      : 'Los clientes pueden reservar celdas';
+    const cerradoAhora = !abiertoPorDueno || fueraDeHorario;
+
+    return (
+      <View style={[styles.statusCard, cerradoAhora && styles.statusCardClosed]}>
+        <View style={styles.statusTopRow}>
+          <View style={[styles.statusDot, cerradoAhora && styles.statusDotClosed]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statusTitle}>{titulo}</Text>
+            <Text style={styles.statusText}>{texto}</Text>
+          </View>
+          <Switch
+            value={abiertoPorDueno}
+            onValueChange={toggleAbierto}
+            trackColor={{ false: '#3A3A3C', true: '#FFD200' }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor="#3A3A3C"
+          />
+        </View>
+        <TouchableOpacity style={styles.horarioRow} onPress={() => openEditModal('horario')} activeOpacity={0.8}>
+          <Ionicons name="time-outline" size={18} color="#FFD200" />
+          <Text style={styles.horarioText}>Horario: {formatHorario(parqueadero)}</Text>
+          <Text style={styles.horarioEdit}>Cambiar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Foto de la entrada: la ven los clientes en el detalle del parqueadero
+  const renderPhoto = () => {
+    const url = fotoUrl(parqueadero);
+    return (
+      <>
+        <Text style={styles.sectionTitle}>FOTO DE LA ENTRADA</Text>
+        <TouchableOpacity
+          style={[styles.photoCard, !url && styles.photoCardEmpty]}
+          onPress={openPhotoOptions}
+          disabled={uploadingPhoto}
+          activeOpacity={0.8}
+        >
+          {url ? <Image source={{ uri: url }} style={styles.photo} resizeMode="cover" /> : null}
+          {uploadingPhoto ? (
+            <View style={styles.photoOverlay}>
+              <ActivityIndicator size="large" color="#FFD200" />
+            </View>
+          ) : url ? (
+            <View style={styles.photoBadge}>
+              <Ionicons name="camera" size={14} color="#000000" />
+              <Text style={styles.photoBadgeText}>CAMBIAR</Text>
+            </View>
+          ) : (
+            <>
+              <Ionicons name="camera-outline" size={32} color="#FFD200" />
+              <Text style={styles.photoEmptyTitle}>AGREGAR FOTO</Text>
+              <Text style={styles.photoEmptyText}>Así los clientes reconocen la entrada al llegar</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </>
+    );
+  };
+
+  // Servicios de lavado que el cliente puede agregar a su reserva
+  const renderLavado = () => (
+    <>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>SERVICIOS DE LAVADO</Text>
+        <TouchableOpacity onPress={() => openEditModal('lavado')} style={styles.addServiceBtn}>
+          <Ionicons name="add" size={16} color="#000000" />
+          <Text style={styles.addServiceText}>AGREGAR</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.sectionHint}>Los clientes pueden agregar un lavado al reservar su celda.</Text>
+      {servicios.length === 0 ? (
+        <TouchableOpacity style={styles.reservasEmpty} onPress={() => openEditModal('lavado')}>
+          <MaterialCommunityIcons name="car-wash" size={20} color="#5A5A5E" />
+          <Text style={styles.reservasEmptyText}>Aún no ofreces lavados. Toca para agregar uno.</Text>
+        </TouchableOpacity>
+      ) : (
+        servicios.map((servicio) => (
+          <View key={servicio.id} style={styles.serviceRow}>
+            <MaterialCommunityIcons name="car-wash" size={20} color="#FFD200" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.serviceName} numberOfLines={1}>
+                {servicio.nombre}
+              </Text>
+              <Text style={styles.servicePrice}>{formatPrice(servicio.precio)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.serviceIconBtn}
+              onPress={() => openEditModal('lavado', servicio)}
+              accessibilityLabel={`Editar ${servicio.nombre}`}
+            >
+              <MaterialCommunityIcons name="pencil" size={16} color="#FFD200" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.serviceIconBtn}
+              onPress={() => confirmDeleteServicio(servicio)}
+              accessibilityLabel={`Eliminar ${servicio.nombre}`}
+            >
+              <Ionicons name="trash-outline" size={16} color="#FF5252" />
+            </TouchableOpacity>
+          </View>
+        ))
+      )}
+      <View style={{ height: 20 }} />
+    </>
+  );
+
   // US04: renderizar la mini-vista del mapa en la pantalla principal
   const renderLocationSection = () => {
     const hasLocation = hasValidCoords(parqueadero);
@@ -394,7 +686,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
     return (
       <View style={styles.locationSection}>
         <Text style={styles.sectionTitle}>UBICACIÓN DEL PARQUEADERO</Text>
-        
+
         {/* Tarjeta de dirección */}
         <View style={styles.addressCard}>
           <View style={styles.addressRow}>
@@ -407,7 +699,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
             </View>
           </View>
 
-          {/* Vista de la ubicación: al tocar se abre la app de mapas del celular */}
+          {/* Mapa con el punto del parqueadero: al tocarlo se abre la app de mapas del celular */}
           {hasLocation ? (
             <TouchableOpacity
               style={styles.mapPreviewContainer}
@@ -416,14 +708,15 @@ const OwnerHomeScreen = ({ navigation, route }) => {
               }
               activeOpacity={0.8}
             >
-              <Ionicons name="map" size={30} color="#FFD200" />
-              <Text style={styles.mapPreviewText}>VER EN MAPS</Text>
+              <ParkingMap
+                style={StyleSheet.absoluteFill}
+                interactive={false}
+                markers={[{ id: parqueadero.id, latitude: lat, longitude: lng, label: 'P' }]}
+              />
               <View style={styles.mapOverlay}>
                 <View style={styles.coordBadge}>
                   <Ionicons name="navigate" size={12} color="#FFD200" />
-                  <Text style={styles.coordText}>
-                    {lat.toFixed(4)}, {lng.toFixed(4)}
-                  </Text>
+                  <Text style={styles.coordText}>VER EN MAPS</Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -434,13 +727,13 @@ const OwnerHomeScreen = ({ navigation, route }) => {
                 No has configurado la ubicación
               </Text>
               <Text style={styles.noLocationSubtext}>
-                Toca "Configurar Ubicación" para marcar dónde está tu parqueadero
+                Los clientes no verán tu parqueadero hasta que marques dónde está
               </Text>
             </View>
           )}
 
           {/* Botón para editar ubicación */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.editLocationBtn}
             onPress={() => navigation.navigate('EditLocation', { parqueadero })}
           >
@@ -452,6 +745,147 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         </View>
       </View>
     );
+  };
+
+  const renderModalFields = () => {
+    if (editingType === 'nombre') {
+      return (
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Nombre del parqueadero</Text>
+          <TextInput
+            style={styles.input}
+            value={editNombre}
+            onChangeText={setEditNombre}
+            placeholder="Ej: Parqueadero El Centro"
+            placeholderTextColor="#666"
+            maxLength={100}
+            autoCapitalize="words"
+            autoFocus
+          />
+        </View>
+      );
+    }
+
+    if (editingType === 'horario') {
+      return (
+        <>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>Abierto las 24 horas</Text>
+            <Switch
+              value={edit24h}
+              onValueChange={setEdit24h}
+              trackColor={{ false: '#3A3A3C', true: '#FFD200' }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#3A3A3C"
+            />
+          </View>
+          {!edit24h ? (
+            <View style={styles.hoursRow}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Abre (24 h)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editApertura}
+                  onChangeText={setEditApertura}
+                  placeholder="06:00"
+                  placeholderTextColor="#666"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                />
+              </View>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Cierra (24 h)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editCierre}
+                  onChangeText={setEditCierre}
+                  placeholder="22:00"
+                  placeholderTextColor="#666"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                />
+              </View>
+            </View>
+          ) : null}
+          <Text style={styles.modalHint}>
+            Fuera del horario los clientes ven el parqueadero cerrado y no pueden reservar. Si cierras
+            después de medianoche (ej: 18:00 a 02:00) también funciona.
+          </Text>
+        </>
+      );
+    }
+
+    if (editingType === 'lavado') {
+      return (
+        <>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Servicio</Text>
+            <TextInput
+              style={styles.input}
+              value={editServicioNombre}
+              onChangeText={setEditServicioNombre}
+              placeholder="Ej: Lavado general, Motor, Tapicería"
+              placeholderTextColor="#666"
+              maxLength={80}
+              autoCapitalize="sentences"
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Precio ($)</Text>
+            <TextInput
+              style={styles.input}
+              value={editServicioPrecio}
+              onChangeText={setEditServicioPrecio}
+              placeholder="15000"
+              placeholderTextColor="#666"
+              keyboardType="numeric"
+            />
+          </View>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Celdas Disponibles</Text>
+          <TextInput
+            style={styles.input}
+            value={editDisponibles}
+            onChangeText={setEditDisponibles}
+            keyboardType="number-pad"
+            placeholderTextColor="#666"
+          />
+        </View>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Capacidad Máxima</Text>
+          <TextInput
+            style={styles.input}
+            value={editMax}
+            onChangeText={setEditMax}
+            keyboardType="number-pad"
+            placeholderTextColor="#666"
+          />
+        </View>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Precio por Hora ($)</Text>
+          <TextInput
+            style={styles.input}
+            value={editPrecio}
+            onChangeText={setEditPrecio}
+            keyboardType="numeric"
+            placeholderTextColor="#666"
+          />
+        </View>
+      </>
+    );
+  };
+
+  const modalTitle = () => {
+    if (editingType === 'nombre') return 'Editar Nombre';
+    if (editingType === 'horario') return 'Horario de Atención';
+    if (editingType === 'lavado') return editServicio ? 'Editar Lavado' : 'Nuevo Servicio de Lavado';
+    return `Editar Celdas de ${VEHICLE_TYPES.find((v) => v.key === editingType)?.label || ''}`;
   };
 
   if (loading) {
@@ -480,6 +914,7 @@ const OwnerHomeScreen = ({ navigation, route }) => {
   }
 
   const occupancy = getOccupancy();
+  const rating = formatRating(parqueadero);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -490,7 +925,11 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         <View style={styles.parkappBadge}>
           <Text style={styles.parkappText}>PARKAPP</Text>
         </View>
-        <TouchableOpacity style={styles.profileBadge} onPress={confirmLogout}>
+        <TouchableOpacity
+          style={styles.profileBadge}
+          onPress={() => navigation.navigate('Profile')}
+          accessibilityLabel="Mi perfil"
+        >
           <Ionicons name="person-outline" size={20} color="#8E8E93" />
         </TouchableOpacity>
       </View>
@@ -512,6 +951,21 @@ const OwnerHomeScreen = ({ navigation, route }) => {
         {userName ? <Text style={styles.greeting}>Hola, {userName}</Text> : null}
         <Text style={styles.mainTitle}>Mi Parqueadero</Text>
         <Text style={styles.mainSubtitle}>Administra las celdas disponibles en tiempo real</Text>
+
+        {/* Estado del parqueadero: cerrado o fuera de horario no recibe reservas */}
+        {renderStatus()}
+
+        {/* Historial, resumen y calificación */}
+        <TouchableOpacity style={styles.historyCard} onPress={() => navigation.navigate('History')} activeOpacity={0.8}>
+          <MaterialCommunityIcons name="chart-box-outline" size={22} color="#FFD200" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.historyTitle}>Historial y resumen</Text>
+            <Text style={styles.historyText}>
+              {rating ? `★ ${rating} · ` : ''}Reservas, ingresos estimados y lavados
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#5A5A5E" />
+        </TouchableOpacity>
 
         {/* Nombre del parqueadero (es el que ven los clientes) */}
         <Text style={styles.sectionTitle}>NOMBRE DEL PARQUEADERO</Text>
@@ -552,9 +1006,14 @@ const OwnerHomeScreen = ({ navigation, route }) => {
             </Text>
 
             {VEHICLE_TYPES.map(renderCellCard)}
+
+            <View style={{ height: 8 }} />
+            {renderLavado()}
           </View>
 
           <View style={isWideLayout && styles.column}>
+            {renderPhoto()}
+
             {/* US04: Sección de Ubicación del Parqueadero */}
             {renderLocationSection()}
 
@@ -582,60 +1041,9 @@ const OwnerHomeScreen = ({ navigation, route }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {editingType === 'nombre'
-                ? 'Editar Nombre'
-                : `Editar Celdas de ${VEHICLE_TYPES.find((v) => v.key === editingType)?.label || ''}`}
-            </Text>
+            <Text style={styles.modalTitle}>{modalTitle()}</Text>
 
-            {editingType === 'nombre' ? (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nombre del parqueadero</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editNombre}
-                  onChangeText={setEditNombre}
-                  placeholder="Ej: Parqueadero El Centro"
-                  placeholderTextColor="#666"
-                  maxLength={100}
-                  autoCapitalize="words"
-                  autoFocus
-                />
-              </View>
-            ) : (
-              <>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Celdas Disponibles</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editDisponibles}
-                    onChangeText={setEditDisponibles}
-                    keyboardType="number-pad"
-                    placeholderTextColor="#666"
-                  />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Capacidad Máxima</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editMax}
-                    onChangeText={setEditMax}
-                    keyboardType="number-pad"
-                    placeholderTextColor="#666"
-                  />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Precio por Hora ($)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editPrecio}
-                    onChangeText={setEditPrecio}
-                    keyboardType="numeric"
-                    placeholderTextColor="#666"
-                  />
-                </View>
-              </>
-            )}
+            {renderModalFields()}
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -727,6 +1135,209 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#8E8E93',
     marginBottom: 24,
+  },
+
+  // Abierto / cerrado
+  statusCard: {
+    backgroundColor: '#161618',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1F3D25',
+    padding: 14,
+    marginBottom: 20,
+  },
+  statusTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  horarioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#232325',
+  },
+  horarioText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  horarioEdit: {
+    color: '#FFD200',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+
+  // Acceso al historial
+  historyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#161618',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+  },
+  historyTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  historyText: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  // Foto de la entrada
+  photoCard: {
+    height: 170,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#161618',
+    marginBottom: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoCardEmpty: {
+    borderWidth: 1,
+    borderColor: '#3D3D20',
+    borderStyle: 'dashed',
+    gap: 4,
+    paddingHorizontal: 20,
+  },
+  photo: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  photoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoBadge: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFD200',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  photoBadgeText: {
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  photoEmptyTitle: {
+    color: '#FFD200',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
+    marginTop: 6,
+  },
+  photoEmptyText: {
+    color: '#5A5A5E',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+
+  // Servicios de lavado
+  addServiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#FFD200',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  addServiceText: {
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  serviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#161618',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  serviceName: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  servicePrice: {
+    color: '#FFD200',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  serviceIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#1F1F10',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Campos del modal de horario
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  switchLabel: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  hoursRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalHint: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+
+  statusCardClosed: {
+    borderColor: '#4A1F1F',
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#34C759',
+  },
+  statusDotClosed: {
+    backgroundColor: '#FF5252',
+  },
+  statusTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
+  },
+  statusText: {
+    color: '#8E8E93',
+    fontSize: 12,
+    marginTop: 2,
   },
   sectionTitle: {
     fontSize: 12,
@@ -1092,6 +1703,17 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontSize: 12,
     marginTop: 2,
+  },
+  reservaWash: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  reservaWashText: {
+    flex: 1,
+    color: '#FFD200',
+    fontSize: 12,
   },
   reservaExpiry: {
     alignItems: 'flex-end',
