@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StatusBar,
   ScrollView,
-  TextInput,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -17,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
 import { getErrorMessage } from '../utils/reservas';
+import Field from '../components/Field';
+import { colors } from '../theme';
 
 // Debe coincidir con el mínimo del backend (auth.controller.js)
 const CONTRASENA_MIN = 6;
@@ -24,21 +25,22 @@ const CONTRASENA_MIN = 6;
 const PasswordField = ({ label, value, onChangeText, visible, onToggleVisible, placeholder }) => (
   <View style={styles.fieldGroup}>
     <Text style={styles.fieldLabel}>{label}</Text>
-    <View style={styles.inputRow}>
-      <TextInput
-        style={styles.input}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor="#5A5A5E"
-        secureTextEntry={!visible}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <TouchableOpacity style={styles.eyeBtn} onPress={onToggleVisible}>
-        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+    <Field
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      secureTextEntry={!visible}
+      autoCapitalize="none"
+      autoCorrect={false}
+    >
+      <TouchableOpacity
+        style={styles.eyeBtn}
+        onPress={onToggleVisible}
+        accessibilityLabel={visible ? 'Ocultar contraseñas' : 'Mostrar contraseñas'}
+      >
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
       </TouchableOpacity>
-    </View>
+    </Field>
   </View>
 );
 
@@ -84,11 +86,11 @@ const ChangePasswordScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -138,7 +140,7 @@ const ChangePasswordScreen = ({ navigation }) => {
             activeOpacity={0.8}
           >
             {saving ? (
-              <ActivityIndicator size="small" color="#000" />
+              <ActivityIndicator size="small" color={colors.onPrimary} />
             ) : (
               <Text style={styles.saveButtonText}>GUARDAR CONTRASEÑA</Text>
             )}
@@ -152,7 +154,7 @@ const ChangePasswordScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   header: {
     paddingHorizontal: 20,
@@ -163,7 +165,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -180,12 +184,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 24,
   },
   fieldGroup: {
@@ -194,30 +198,13 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textSecondary,
     letterSpacing: 0.5,
     marginBottom: 8,
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1C1C1E',
-    borderWidth: 1.5,
-    borderColor: '#FFD200',
-    borderRadius: 12,
-    height: 52,
-  },
-  input: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 15,
-    paddingHorizontal: 16,
-    height: '100%',
-  },
   eyeBtn: {
-    paddingHorizontal: 14,
-    height: '100%',
-    justifyContent: 'center',
+    padding: 6,
+    marginRight: -6,
   },
   bottomContainer: {
     paddingHorizontal: 20,
@@ -225,7 +212,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   saveButton: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 54,
     borderRadius: 14,
     justifyContent: 'center',
@@ -235,7 +222,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   saveButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 1,

@@ -10,7 +10,6 @@ import {
   Alert,
   RefreshControl,
   Modal,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   Image,
@@ -23,6 +22,7 @@ import useResponsive from '../hooks/useResponsive';
 import useRealtime from '../hooks/useRealtime';
 import ParkingMap from '../components/ParkingMap';
 import StarRating from '../components/StarRating';
+import Field from '../components/Field';
 import { hasValidCoords, openInMaps, openDirections } from '../utils/maps';
 import { scheduleReservaReminder, cancelReservaReminder } from '../utils/notifications';
 import { fotoUrl, formatHorario, estaAbiertoAhora, motivoCerrado } from '../utils/parqueadero';
@@ -33,6 +33,7 @@ import {
   formatCountdown,
   getErrorMessage,
 } from '../utils/reservas';
+import { colors } from '../theme';
 
 // US06: los cambios llegan al instante por tiempo real; esto es un respaldo por si se cae la conexión
 const REFRESH_INTERVAL_MS = 30000;
@@ -253,14 +254,14 @@ const ParkingDetailScreen = ({ navigation, route }) => {
   const renderHeader = () => (
     <View style={styles.header}>
       <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
-        <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+        <Ionicons name="chevron-back" size={22} color={colors.text} />
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.headerBtn}
         onPress={() => navigation.navigate('Profile')}
         accessibilityLabel="Mi perfil"
       >
-        <Ionicons name="person-outline" size={20} color="#8E8E93" />
+        <Ionicons name="person-outline" size={20} color={colors.textMuted} />
       </TouchableOpacity>
     </View>
   );
@@ -268,9 +269,9 @@ const ParkingDetailScreen = ({ navigation, route }) => {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
         {renderHeader()}
-        <ActivityIndicator size="large" color="#FFD200" style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
       </SafeAreaView>
     );
   }
@@ -278,10 +279,10 @@ const ParkingDetailScreen = ({ navigation, route }) => {
   if (!parqueadero) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
         {renderHeader()}
         <View style={styles.emptyContainer}>
-          <Ionicons name="alert-circle-outline" size={48} color="#3A3A3C" />
+          <Ionicons name="alert-circle-outline" size={48} color={colors.borderStrong} />
           <Text style={styles.emptyTitle}>No se pudo cargar el parqueadero</Text>
           <TouchableOpacity style={styles.retryButton} onPress={fetchParqueadero}>
             <Text style={styles.retryButtonText}>REINTENTAR</Text>
@@ -305,7 +306,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           <View key={key} style={styles.availabilityCard}>
             <View style={styles.availabilityTopRow}>
               <View style={styles.availabilityLabelRow}>
-                <IconSet name={icon} size={20} color="#FFD200" />
+                <IconSet name={icon} size={20} color={colors.primary} />
                 <Text style={styles.availabilityLabel}>{label}</Text>
               </View>
               <Text style={[styles.availabilityCount, disponibles === 0 && styles.availabilityCountEmpty]}>
@@ -327,7 +328,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
       <View style={styles.priceRow}>
         {VEHICLE_TYPES.map(({ key, singular, icon, IconSet }) => (
           <View key={key} style={styles.priceCard}>
-            <IconSet name={icon} size={18} color="#8E8E93" />
+            <IconSet name={icon} size={18} color={colors.textMuted} />
             <Text style={styles.priceValue}>{formatPrice(parqueadero[`${key}_precio`])}</Text>
             <Text style={styles.priceUnit}>{singular} / hora</Text>
           </View>
@@ -346,7 +347,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
         <View style={styles.washCard}>
           {servicios.map((servicio, index) => (
             <View key={servicio.id} style={[styles.washRow, index > 0 && styles.washRowBorder]}>
-              <MaterialCommunityIcons name="car-wash" size={18} color="#FFD200" />
+              <MaterialCommunityIcons name="car-wash" size={18} color={colors.primary} />
               <Text style={styles.washName} numberOfLines={1}>
                 {servicio.nombre}
               </Text>
@@ -364,7 +365,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
       <Text style={styles.sectionTitle}>OPINIONES</Text>
       {opiniones.length === 0 ? (
         <View style={styles.noOpinions}>
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color="#5A5A5E" />
+          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.textFaint} />
           <Text style={styles.noOpinionsText}>Todavía nadie ha calificado este parqueadero</Text>
         </View>
       ) : (
@@ -387,7 +388,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
       <Text style={styles.sectionTitle}>DIRECCIÓN & UBICACIÓN</Text>
       <View style={styles.locationCard}>
         <View style={styles.addressRow}>
-          <Ionicons name="location-outline" size={20} color="#FFD200" />
+          <Ionicons name="location-outline" size={20} color={colors.primary} />
           <Text style={styles.addressText}>
             {parqueadero.direccion || 'Sin dirección registrada'}
           </Text>
@@ -417,26 +418,26 @@ const ParkingDetailScreen = ({ navigation, route }) => {
               ]}
             />
             <View style={styles.mapOpenBadge}>
-              <Ionicons name="map" size={12} color="#000000" />
+              <Ionicons name="map" size={12} color={colors.onPrimary} />
               <Text style={styles.mapOpenText}>VER EN MAPS</Text>
             </View>
             {distanceText ? (
               <View style={styles.mapDistanceBadge}>
-                <Ionicons name="navigate" size={12} color="#FFD200" />
+                <Ionicons name="navigate" size={12} color={colors.primary} />
                 <Text style={styles.mapDistanceText}>{distanceText}</Text>
               </View>
             ) : null}
           </TouchableOpacity>
         ) : (
           <View style={styles.noMapBox}>
-            <Ionicons name="map-outline" size={22} color="#3A3A3C" />
+            <Ionicons name="map-outline" size={22} color={colors.borderStrong} />
             <Text style={styles.noMapText}>El dueño aún no ha marcado la ubicación en el mapa</Text>
           </View>
         )}
 
         {hasCoords ? (
           <TouchableOpacity style={styles.directionsButton} onPress={openExternalMaps} activeOpacity={0.8}>
-            <Ionicons name="navigate" size={16} color="#FFD200" />
+            <Ionicons name="navigate" size={16} color={colors.primary} />
             <Text style={styles.directionsButtonText}>CÓMO LLEGAR</Text>
           </TouchableOpacity>
         ) : null}
@@ -452,7 +453,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
     return (
       <View style={styles.reservaCard}>
         <View style={styles.reservaTopRow}>
-          <MaterialCommunityIcons name="ticket-confirmation-outline" size={22} color="#FFD200" />
+          <MaterialCommunityIcons name="ticket-confirmation-outline" size={22} color={colors.primary} />
           <Text style={styles.reservaTitle}>TU RESERVA</Text>
         </View>
         <Text style={styles.reservaInfo}>
@@ -491,7 +492,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           activeOpacity={0.8}
         >
           {cancelling ? (
-            <ActivityIndicator size="small" color="#FF5252" />
+            <ActivityIndicator size="small" color={colors.danger} />
           ) : (
             <Text style={styles.cancelReserveButtonText}>CANCELAR RESERVA</Text>
           )}
@@ -554,7 +555,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
                   disabled={libres <= 0}
                   activeOpacity={0.8}
                 >
-                  <IconSet name={icon} size={22} color={selected ? '#000000' : '#FFD200'} />
+                  <IconSet name={icon} size={22} color={selected ? colors.onPrimary : colors.primary} />
                   <Text style={[styles.typeOptionText, selected && styles.typeOptionTextSelected]}>
                     {singular}
                   </Text>
@@ -567,12 +568,11 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           </View>
 
           <Text style={styles.modalLabel}>PLACA</Text>
-          <TextInput
-            style={styles.modalInput}
+          <Field
+            inputStyle={styles.modalInput}
             value={placa}
             onChangeText={(text) => setPlaca(text.toUpperCase())}
             placeholder="ABC123"
-            placeholderTextColor="#5A5A5E"
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={8}
@@ -633,7 +633,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
               disabled={reserving}
             >
               {reserving ? (
-                <ActivityIndicator size="small" color="#000000" />
+                <ActivityIndicator size="small" color={colors.onPrimary} />
               ) : (
                 <Text style={styles.modalConfirmText}>Reservar</Text>
               )}
@@ -646,7 +646,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       {renderHeader()}
 
       <ScrollView
@@ -657,8 +657,8 @@ const ParkingDetailScreen = ({ navigation, route }) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#FFD200"
-            colors={['#FFD200']}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
@@ -681,7 +681,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
             </Text>
           </View>
           <View style={styles.infoItem}>
-            <Ionicons name="time-outline" size={15} color="#FFD200" />
+            <Ionicons name="time-outline" size={15} color={colors.primary} />
             <Text style={styles.infoText}>{formatHorario(parqueadero)}</Text>
           </View>
         </View>
@@ -700,7 +700,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
 
         {!estaAbiertoAhora(parqueadero) ? (
           <View style={styles.closedBanner}>
-            <Ionicons name="lock-closed" size={18} color="#FF5252" />
+            <Ionicons name="lock-closed" size={18} color={colors.danger} />
             <Text style={styles.closedBannerText}>{motivoCerrado(parqueadero)}. No recibe reservas.</Text>
           </View>
         ) : null}
@@ -732,7 +732,7 @@ const ParkingDetailScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -746,7 +746,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -767,12 +767,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 10,
   },
 
@@ -786,33 +786,33 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#34C759',
+    backgroundColor: colors.success,
     marginRight: 6,
   },
   liveDotError: {
-    backgroundColor: '#FF5252',
+    backgroundColor: colors.danger,
   },
   liveText: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
 
   sectionTitle: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     letterSpacing: 0.8,
     marginBottom: 10,
   },
 
   // Disponibilidad
   availabilityCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 16,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   availabilityTopRow: {
     flexDirection: 'row',
@@ -828,26 +828,26 @@ const styles = StyleSheet.create({
   availabilityLabel: {
     fontSize: 15,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   availabilityCount: {
     fontSize: 13,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   availabilityCountEmpty: {
-    color: '#FF5252',
+    color: colors.danger,
   },
   progressTrack: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     borderRadius: 4,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
   },
 
   // Precios
@@ -859,33 +859,33 @@ const styles = StyleSheet.create({
   },
   priceCard: {
     flex: 1,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   priceValue: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FFD200',
+    color: colors.primary,
     marginTop: 6,
   },
   priceUnit: {
     fontSize: 11,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 2,
   },
 
   // Ubicación
   locationCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
     marginBottom: 20,
   },
   addressRow: {
@@ -896,12 +896,12 @@ const styles = StyleSheet.create({
   addressText: {
     flex: 1,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: colors.text,
     fontWeight: '600',
   },
   detailsText: {
     fontSize: 13,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 4,
     marginLeft: 30,
   },
@@ -910,9 +910,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     marginTop: 12,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 4,
@@ -927,19 +927,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   mapOpenText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
   mapCoordsText: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 11,
     fontVariant: ['tabular-nums'],
   },
@@ -956,7 +956,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   mapDistanceText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 11,
     fontWeight: 'bold',
   },
@@ -964,7 +964,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     height: 80,
     borderRadius: 12,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -972,7 +972,7 @@ const styles = StyleSheet.create({
   },
   noMapText: {
     fontSize: 12,
-    color: '#5A5A5E',
+    color: colors.textFaint,
     textAlign: 'center',
   },
   directionsButton: {
@@ -980,15 +980,15 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
   directionsButtonText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.8,
@@ -1003,19 +1003,19 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 14,
   },
   retryButton: {
     marginTop: 16,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     paddingHorizontal: 24,
     height: 44,
     borderRadius: 12,
     justifyContent: 'center',
   },
   retryButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
@@ -1027,14 +1027,14 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   reserveButton: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 54,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   reserveButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -1046,13 +1046,13 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#FF5252',
-    backgroundColor: '#1A0F0F',
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
   cancelReserveButtonText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -1064,7 +1064,7 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 16,
     marginBottom: 12,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
   },
   infoRow: {
     flexDirection: 'row',
@@ -1078,19 +1078,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   infoText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
 
   // Lavado
   washCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
     marginBottom: 20,
   },
   washRow: {
@@ -1101,21 +1101,21 @@ const styles = StyleSheet.create({
   },
   washRowBorder: {
     borderTopWidth: 1,
-    borderTopColor: '#232325',
+    borderTopColor: colors.border,
   },
   washName: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   washPrice: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: 'bold',
   },
   washHint: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 11,
     paddingBottom: 6,
   },
@@ -1132,12 +1132,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
     gap: 2,
   },
   washOptionText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: 'bold',
   },
@@ -1148,18 +1148,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
     borderStyle: 'dashed',
     borderRadius: 14,
     padding: 14,
   },
   noOpinionsText: {
     flex: 1,
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 13,
   },
   opinionCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 14,
     padding: 12,
     marginBottom: 8,
@@ -1170,12 +1170,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   opinionName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: 'bold',
   },
   opinionText: {
-    color: '#A0A0A0',
+    color: colors.textSecondary,
     fontSize: 13,
     marginTop: 6,
   },
@@ -1185,26 +1185,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#1A0F0F',
+    backgroundColor: colors.dangerSoft,
     borderWidth: 1,
-    borderColor: '#4A1F1F',
+    borderColor: colors.dangerBorder,
     borderRadius: 14,
     padding: 14,
     marginBottom: 20,
   },
   closedBannerText: {
     flex: 1,
-    color: '#FF8A8A',
+    color: colors.dangerText,
     fontSize: 13,
   },
 
   // Reserva activa
   reservaCard: {
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1.5,
-    borderColor: '#FFD200',
+    borderColor: colors.primary,
     marginBottom: 20,
   },
   reservaTopRow: {
@@ -1213,19 +1213,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   reservaTitle: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
   reservaInfo: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
     marginTop: 8,
   },
   reservaWash: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 13,
     marginTop: 4,
   },
@@ -1236,21 +1236,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   reservaTimer: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 30,
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],
   },
   reservaTimerWarning: {
-    color: '#FF9F0A',
+    color: colors.warning,
   },
   reservaTimerLabel: {
     flex: 1,
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
   },
   reservaHint: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 6,
   },
@@ -1266,21 +1266,21 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 480,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 20,
     padding: 22,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     textAlign: 'center',
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 4,
     marginBottom: 18,
@@ -1288,7 +1288,7 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     letterSpacing: 0.8,
     marginBottom: 8,
   },
@@ -1303,40 +1303,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
     gap: 4,
   },
   typeOptionSelected: {
-    backgroundColor: '#FFD200',
-    borderColor: '#FFD200',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   typeOptionText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: 'bold',
   },
   typeOptionCount: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 11,
   },
   typeOptionTextSelected: {
-    color: '#000000',
+    color: colors.onPrimary,
   },
   modalInput: {
-    backgroundColor: '#0F0F10',
-    borderWidth: 1,
-    borderColor: '#FFD200',
-    borderRadius: 10,
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
     letterSpacing: 2,
-    paddingHorizontal: 14,
-    height: 50,
   },
   modalPrice: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 10,
   },
@@ -1351,19 +1344,19 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   modalCancelText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontWeight: 'bold',
     fontSize: 15,
   },
   modalConfirmBtn: {
     flex: 1,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
   },
   modalConfirmText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     fontSize: 15,
   },

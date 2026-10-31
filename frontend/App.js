@@ -20,6 +20,7 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import { TABLET_MIN_SIDE } from './src/hooks/useResponsive';
 import { navigationRef } from './src/services/navigation';
 import { startSession } from './src/services/session';
+import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
 
@@ -82,8 +83,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000000' }}>
-        <ActivityIndicator size="large" color="#FFD200" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -95,7 +96,7 @@ export default function App() {
           initialRouteName={initialRoute}
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: '#000000' },
+            contentStyle: { backgroundColor: colors.bg },
           }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />

@@ -28,6 +28,8 @@ import { estaAbiertoAhora, formatRating, tieneLavado } from '../utils/parqueader
 import { scheduleReservaReminder, cancelReservaReminder } from '../utils/notifications';
 import { findCity } from '../constants/cities';
 import CityPickerModal from '../components/CityPickerModal';
+import AppHeader from '../components/AppHeader';
+import { colors } from '../theme';
 
 // Bogotá center as reference default
 const DEFAULT_USER_COORDS = {
@@ -51,18 +53,22 @@ const calculateDistanceKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Format distance string like "A 200m" or "A 1.2km"
-const formatDistance = (km, fallbackIndex = 0) => {
-  if (km === null || km === undefined) {
-    const fallbacks = ['A 200m', 'A 1.2km', 'A 850m', 'A 2.5km'];
-    return fallbacks[fallbackIndex % fallbacks.length];
-  }
+// Format distance string like "A 200m" or "A 1.2km"; null si no se conoce la ubicación
+const formatDistance = (km) => {
+  if (km === null || km === undefined) return null;
   if (km < 1) {
     const meters = Math.round(km * 1000);
     return `A ${meters}m`;
   }
   return `A ${km.toFixed(1)}km`;
 };
+
+// Pastillas de disponibilidad en cada tarjeta
+const PILL_TYPES = [
+  { key: 'motos', label: 'Moto', icon: 'motorbike', IconSet: MaterialCommunityIcons },
+  { key: 'carros', label: 'Carro', icon: 'car-sport', IconSet: Ionicons },
+  { key: 'camiones', label: 'Camión', icon: 'truck-outline', IconSet: MaterialCommunityIcons },
+];
 
 const getTotalDisponibles = (item) =>
   (item.motos_disponibles || 0) + (item.carros_disponibles || 0) + (item.camiones_disponibles || 0);
@@ -280,7 +286,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
         : cityCenter;
 
     return parqueaderos
-      .map((item, index) => {
+      .map((item) => {
         let distanceKm = null;
         let cityDistanceKm = null;
         if (hasValidCoords(item)) {
@@ -297,7 +303,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
           ...item,
           calculatedDistance: distanceKm,
           cityDistance: cityDistanceKm,
-          distanceText: formatDistance(distanceKm, index),
+          distanceText: formatDistance(distanceKm),
         };
       })
       .filter((item) => {
@@ -362,22 +368,9 @@ const ClientHomeScreen = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
 
-      {/* Top Header */}
-      <View style={styles.header}>
-        <View style={styles.parkappBadge}>
-          <Text style={styles.parkappText}>PARKAPP</Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.profileBadge}
-          onPress={() => setProfileModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="person-outline" size={20} color="#8E8E93" />
-        </TouchableOpacity>
-      </View>
+      <AppHeader onProfilePress={() => setProfileModalVisible(true)} />
 
       <ScrollView
         contentContainerStyle={[styles.content, isTablet && styles.contentTablet]}
@@ -386,8 +379,8 @@ const ClientHomeScreen = ({ navigation, route }) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#FFD200"
-            colors={['#FFD200']}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
@@ -406,7 +399,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
             onPress={() => navigation.navigate('ParkingDetail', { parqueaderoId: miReserva.parqueadero_id })}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color="#000000" />
+            <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color={colors.onPrimary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.reservaBannerTitle} numberOfLines={1}>
                 Reserva en {miReserva.parqueadero_nombre || 'parqueadero'}
@@ -416,7 +409,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 {formatClock(miReserva.expiraLocal)}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#000000" />
+            <Ionicons name="chevron-forward" size={20} color={colors.onPrimary} />
           </TouchableOpacity>
         ) : null}
 
@@ -426,7 +419,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
           onPress={() => setCityPickerVisible(true)}
           activeOpacity={0.8}
         >
-          <Ionicons name="location" size={16} color="#FFD200" />
+          <Ionicons name="location" size={16} color={colors.primary} />
           <Text style={styles.cityChipText}>{homeCity ? homeCity.nombre : 'Elige tu ciudad'}</Text>
           <Text style={styles.cityChipAction}>Cambiar</Text>
         </TouchableOpacity>
@@ -434,17 +427,17 @@ const ClientHomeScreen = ({ navigation, route }) => {
         {/* Search & Filter Bar */}
         <View style={styles.searchRow}>
           <View style={styles.searchInputContainer}>
-            <Ionicons name="search" size={18} color="#8E8E93" style={{ marginRight: 8 }} />
+            <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
               placeholder="Buscar por ubicación..."
-              placeholderTextColor="#666668"
+              placeholderTextColor={colors.placeholder}
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={18} color="#8E8E93" />
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             )}
           </View>
@@ -457,7 +450,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
             onPress={() => setFilterModalVisible(true)}
             activeOpacity={0.8}
           >
-            <Ionicons name="options" size={22} color="#000000" />
+            <Ionicons name="options" size={22} color={colors.onPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -492,7 +485,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               onPress={() => setViewMode(opt.id)}
               activeOpacity={0.8}
             >
-              <Ionicons name={opt.icon} size={16} color={viewMode === opt.id ? '#000000' : '#FFD200'} />
+              <Ionicons name={opt.icon} size={16} color={viewMode === opt.id ? colors.onPrimary : colors.primary} />
               <Text style={[styles.viewToggleText, viewMode === opt.id && styles.viewToggleTextActive]}>
                 {opt.label}
               </Text>
@@ -518,10 +511,10 @@ const ClientHomeScreen = ({ navigation, route }) => {
             </Text>
           </>
         ) : loading ? (
-          <ActivityIndicator size="large" color="#FFD200" style={{ marginTop: 30 }} />
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 30 }} />
         ) : filteredParqueaderos.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="car-outline" size={48} color="#3A3A3C" />
+            <Ionicons name="car-outline" size={48} color={colors.borderStrong} />
             <Text style={styles.emptyTitle}>
               {showingCity
                 ? `No hay parqueaderos en ${shownCityName || 'tu ciudad'}`
@@ -532,13 +525,13 @@ const ClientHomeScreen = ({ navigation, route }) => {
             </Text>
           </View>
         ) : (
-          filteredParqueaderos.map((item) => {
-            const isMotoLow = (item.motos_disponibles || 0) <= 2 && (item.motos_disponibles || 0) > 0;
-            const isCarroLow = (item.carros_disponibles || 0) <= 2 && (item.carros_disponibles || 0) > 0;
-            const isCamionLow = (item.camiones_disponibles || 0) <= 2 && (item.camiones_disponibles || 0) > 0;
-
-            return (
-              <View key={item.id} style={[styles.card, !estaAbiertoAhora(item) && styles.cardClosed]}>
+          filteredParqueaderos.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.card, !estaAbiertoAhora(item) && styles.cardClosed]}
+                onPress={() => openDetail(item)}
+                activeOpacity={0.85}
+              >
                 {/* Header: Name and Distance Badge */}
                 <View style={styles.cardTopRow}>
                   <Text style={styles.cardTitle} numberOfLines={1}>
@@ -549,9 +542,11 @@ const ClientHomeScreen = ({ navigation, route }) => {
                       <Text style={styles.closedBadgeText}>CERRADO</Text>
                     </View>
                   ) : null}
-                  <View style={styles.distanceBadge}>
-                    <Text style={styles.distanceText}>{item.distanceText}</Text>
-                  </View>
+                  {item.distanceText ? (
+                    <View style={styles.distanceBadge}>
+                      <Text style={styles.distanceText}>{item.distanceText}</Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Physical Address */}
@@ -564,54 +559,45 @@ const ClientHomeScreen = ({ navigation, route }) => {
                   <View style={styles.badgesRow}>
                     {formatRating(item) ? (
                       <View style={styles.infoBadge}>
-                        <Ionicons name="star" size={12} color="#FFD200" />
+                        <Ionicons name="star" size={12} color={colors.primary} />
                         <Text style={styles.infoBadgeText}>{formatRating(item)}</Text>
                       </View>
                     ) : null}
                     {tieneLavado(item) ? (
                       <View style={styles.infoBadge}>
-                        <MaterialCommunityIcons name="car-wash" size={13} color="#FFD200" />
+                        <MaterialCommunityIcons name="car-wash" size={13} color={colors.primary} />
                         <Text style={styles.infoBadgeText}>Lavado</Text>
                       </View>
                     ) : null}
                   </View>
                 ) : null}
 
-                {/* Availability Pills */}
+                {/* Celdas libres por tipo: amarillo si quedan pocas, apagado si no hay */}
                 <View style={styles.pillsRow}>
-                  {/* Moto Pill */}
-                  <View style={[styles.pill, isMotoLow && styles.pillWarning]}>
-                    <MaterialCommunityIcons name="motorbike" size={14} color="#FFFFFF" />
-                    <Text style={styles.pillNumber}>{item.motos_disponibles || 0}</Text>
-                    <Text style={styles.pillLabel}> Moto</Text>
-                  </View>
-
-                  {/* Carro Pill */}
-                  <View style={[styles.pill, isCarroLow && styles.pillWarning]}>
-                    <Ionicons name="car-sport" size={14} color="#FFFFFF" />
-                    <Text style={styles.pillNumber}>{item.carros_disponibles || 0}</Text>
-                    <Text style={styles.pillLabel}> Carro</Text>
-                  </View>
-
-                  {/* Camión Pill */}
-                  <View style={[styles.pill, isCamionLow && styles.pillWarning]}>
-                    <MaterialCommunityIcons name="truck-outline" size={14} color="#FFFFFF" />
-                    <Text style={styles.pillNumber}>{item.camiones_disponibles || 0}</Text>
-                    <Text style={styles.pillLabel}> Camión</Text>
-                  </View>
+                  {PILL_TYPES.map(({ key, label, icon, IconSet }) => {
+                    const libres = item[`${key}_disponibles`] || 0;
+                    const pocas = libres > 0 && libres <= 2;
+                    return (
+                      <View
+                        key={key}
+                        style={[styles.pill, pocas && styles.pillWarning, libres === 0 && styles.pillEmpty]}
+                      >
+                        <IconSet name={icon} size={14} color={pocas ? colors.primary : colors.textMuted} />
+                        <Text style={[styles.pillNumber, pocas && { color: colors.primary }]}>{libres}</Text>
+                        <Text style={styles.pillLabel} numberOfLines={1}>
+                          {label}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
 
-                {/* VER DETALLES Button */}
-                <TouchableOpacity
-                  style={styles.detailsButton}
-                  onPress={() => openDetail(item)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.detailsButtonText}>VER DETALLES</Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })
+                <View style={styles.detailsRow}>
+                  <Text style={styles.detailsButtonText}>Ver detalles y reservar</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                </View>
+              </TouchableOpacity>
+            ))
         )}
       </ScrollView>
 
@@ -630,7 +616,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 style={styles.modalCloseBtn}
                 onPress={() => setFilterModalVisible(false)}
               >
-                <Ionicons name="close" size={20} color="#FFFFFF" />
+                <Ionicons name="close" size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -670,7 +656,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               <Ionicons
                 name={onlyAvailable ? 'checkbox' : 'square-outline'}
                 size={22}
-                color={onlyAvailable ? '#FFD200' : '#8E8E93'}
+                color={onlyAvailable ? colors.primary : colors.textMuted}
               />
               <Text style={styles.toggleText}>Solo con celdas disponibles</Text>
             </TouchableOpacity>
@@ -700,13 +686,13 @@ const ClientHomeScreen = ({ navigation, route }) => {
                 style={styles.modalCloseBtn}
                 onPress={() => setProfileModalVisible(false)}
               >
-                <Ionicons name="close" size={20} color="#FFFFFF" />
+                <Ionicons name="close" size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.profileInfoBox}>
               <View style={styles.profileAvatar}>
-                <Ionicons name="person" size={32} color="#000000" />
+                <Ionicons name="person" size={32} color={colors.onPrimary} />
               </View>
               <Text style={styles.profileName}>{userName || 'Cliente'}</Text>
               <Text style={styles.profileEmail}>{userEmail}</Text>
@@ -715,7 +701,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               </View>
               {homeCity && (
                 <View style={styles.profileCityRow}>
-                  <Ionicons name="location-outline" size={14} color="#8E8E93" />
+                  <Ionicons name="location-outline" size={14} color={colors.textMuted} />
                   <Text style={styles.profileEmail}>{homeCity.nombre}</Text>
                 </View>
               )}
@@ -729,7 +715,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name="receipt-outline" size={20} color="#FFD200" style={{ marginRight: 8 }} />
+              <Ionicons name="receipt-outline" size={20} color={colors.primary} style={{ marginRight: 8 }} />
               <Text style={styles.changePasswordButtonText}>Mis Reservas</Text>
             </TouchableOpacity>
 
@@ -741,7 +727,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name="person-circle-outline" size={20} color="#FFD200" style={{ marginRight: 8 }} />
+              <Ionicons name="person-circle-outline" size={20} color={colors.primary} style={{ marginRight: 8 }} />
               <Text style={styles.changePasswordButtonText}>Editar Perfil y Contraseña</Text>
             </TouchableOpacity>
 
@@ -750,7 +736,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
               onPress={handleLogout}
               activeOpacity={0.8}
             >
-              <Ionicons name="exit-outline" size={20} color="#FF5252" style={{ marginRight: 8 }} />
+              <Ionicons name="exit-outline" size={20} color={colors.danger} style={{ marginRight: 8 }} />
               <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
             </TouchableOpacity>
           </View>
@@ -770,36 +756,7 @@ const ClientHomeScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  parkappBadge: {
-    borderWidth: 1,
-    borderColor: '#FFD200',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  parkappText: {
-    color: '#FFD200',
-    fontWeight: 'bold',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  profileBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#1C1C1E',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: colors.bg,
   },
   content: {
     paddingHorizontal: 20,
@@ -812,31 +769,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 12,
   },
   reservaBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 14,
   },
   reservaBannerTitle: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: 'bold',
   },
   reservaBannerText: {
-    color: '#1C1C1E',
+    color: colors.surfaceRaised,
     fontSize: 12,
     marginTop: 2,
   },
@@ -845,21 +802,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     borderWidth: 0.5,
-    borderColor: '#3D3D20',
+    borderColor: colors.primaryBorder,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 20,
   },
   cityChipText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: 'bold',
   },
   cityChipAction: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 4,
@@ -875,30 +832,30 @@ const styles = StyleSheet.create({
   searchInputContainer: {
     flex: 1,
     height: 48,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
   },
   filterButton: {
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   filterButtonActive: {
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: colors.white,
   },
 
   // Section Header
@@ -911,23 +868,23 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     letterSpacing: 0.8,
   },
   clearFilterText: {
     fontSize: 12,
-    color: '#FFD200',
+    color: colors.primary,
     fontWeight: '600',
   },
 
   // Card
   card: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   viewToggle: {
     flexDirection: 'row',
@@ -943,30 +900,30 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   viewToggleBtnActive: {
-    backgroundColor: '#FFD200',
-    borderColor: '#FFD200',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   viewToggleText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
   viewToggleTextActive: {
-    color: '#000000',
+    color: colors.onPrimary,
   },
   map: {
     height: 440,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   mapHint: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 12,
     marginTop: 8,
     marginBottom: 16,
@@ -980,13 +937,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   infoBadgeText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 11,
     fontWeight: 'bold',
   },
@@ -994,16 +951,16 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   closedBadge: {
-    backgroundColor: '#3A1515',
+    backgroundColor: colors.dangerSoft,
     borderWidth: 0.5,
-    borderColor: '#FF5252',
+    borderColor: colors.danger,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     marginRight: 6,
   },
   closedBadgeText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 0.5,
@@ -1017,26 +974,26 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     flex: 1,
     marginRight: 10,
   },
   distanceBadge: {
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 0.5,
-    borderColor: '#3D3D20',
+    borderColor: colors.primaryBorder,
   },
   distanceText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontWeight: 'bold',
     fontSize: 11,
   },
   cardAddress: {
     fontSize: 13,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 14,
   },
 
@@ -1047,45 +1004,50 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   pill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F0F11',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: colors.surfaceSunken,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   pillWarning: {
-    borderColor: '#FFD200',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  pillEmpty: {
+    opacity: 0.4,
   },
   pillNumber: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontWeight: 'bold',
-    fontSize: 13,
-    marginLeft: 5,
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
   },
   pillLabel: {
-    color: '#8E8E93',
+    flexShrink: 1,
+    color: colors.textMuted,
     fontSize: 11,
-    marginLeft: 2,
   },
 
-  // Details button
-  detailsButton: {
-    backgroundColor: '#1E1E22',
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
+  // Pie de la tarjeta: invita a abrir el detalle
+  detailsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2E2E34',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   detailsButtonText: {
-    color: '#FFFFFF',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: 'bold',
-    letterSpacing: 0.8,
   },
 
   // Empty state
@@ -1097,12 +1059,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 14,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: '#5A5A5E',
+    color: colors.textFaint,
     marginTop: 6,
     textAlign: 'center',
   },
@@ -1124,18 +1086,18 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   modalSubtitle: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 2,
   },
   modalCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#262628',
+    backgroundColor: colors.surfaceHigh,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1144,16 +1106,16 @@ const styles = StyleSheet.create({
   filterModalContent: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
   },
   filterGroupTitle: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textMuted,
     letterSpacing: 0.8,
     marginBottom: 10,
   },
@@ -1166,20 +1128,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   filterChipActive: {
-    backgroundColor: '#FFD200',
-    borderColor: '#FFD200',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   filterChipText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
   },
   filterChipTextActive: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
   },
   toggleRow: {
@@ -1190,11 +1152,11 @@ const styles = StyleSheet.create({
   },
   toggleRowActive: {},
   toggleText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
   },
   applyFilterBtn: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 46,
     borderRadius: 12,
     justifyContent: 'center',
@@ -1202,7 +1164,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   applyFilterBtnText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     fontSize: 14,
     letterSpacing: 0.8,
@@ -1217,7 +1179,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -1225,21 +1187,21 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   profileEmail: {
     fontSize: 13,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 4,
   },
   profileRoleBadge: {
-    backgroundColor: '#1E1E14',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
     marginTop: 10,
     borderWidth: 0.5,
-    borderColor: '#3D3D20',
+    borderColor: colors.primaryBorder,
   },
   profileCityRow: {
     flexDirection: 'row',
@@ -1248,40 +1210,40 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   profileRoleText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 11,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
   changePasswordButton: {
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     height: 48,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#3D3D20',
+    borderColor: colors.primaryBorder,
     marginTop: 10,
   },
   changePasswordButtonText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: 'bold',
   },
   logoutButton: {
-    backgroundColor: '#262628',
+    backgroundColor: colors.surfaceHigh,
     height: 48,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#3A3A3C',
+    borderColor: colors.borderStrong,
     marginTop: 10,
   },
   logoutButtonText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontSize: 14,
     fontWeight: 'bold',
   },

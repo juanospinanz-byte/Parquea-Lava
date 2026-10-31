@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -16,6 +15,8 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import api from '../services/api';
 import { saveSession } from '../services/session';
 import useResponsive from '../hooks/useResponsive';
+import Field from '../components/Field';
+import { colors } from '../theme';
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -59,7 +60,7 @@ const LoginScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -94,43 +95,37 @@ const LoginScreen = ({ navigation }) => {
             <View style={[styles.formContainer, isWideLayout && styles.formContainerWide]}>
               {/* Campo Correo */}
               <Text style={styles.inputLabel}>CORREO ELECTRÓNICO</Text>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="propietario@parkapp.com"
-                  placeholderTextColor="#666666"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
+              <Field
+                placeholder="propietario@parkapp.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
 
               {/* Campo Contraseña */}
               <Text style={[styles.inputLabel, { marginTop: 18 }]}>CONTRASEÑA</Text>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={[styles.textInput, { flex: 1 }]}
-                  placeholder="••••••••••••"
-                  placeholderTextColor="#666666"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
+              <Field
+                placeholder="••••••••••••"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+              >
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
                   activeOpacity={0.7}
+                  accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 >
                   <Feather
                     name={showPassword ? 'eye' : 'eye-off'}
                     size={20}
-                    color="#888888"
+                    color={colors.textMuted}
                   />
                 </TouchableOpacity>
-              </View>
+              </Field>
 
               {/* Fila Recordarme y Olvido Contraseña */}
               <View style={styles.optionsRow}>
@@ -146,7 +141,7 @@ const LoginScreen = ({ navigation }) => {
                     ]}
                   >
                     {rememberMe && (
-                      <Ionicons name="checkmark" size={14} color="#000000" />
+                      <Ionicons name="checkmark" size={14} color={colors.onPrimary} />
                     )}
                   </View>
                   <Text style={styles.rememberText}>Recordarme</Text>
@@ -167,7 +162,7 @@ const LoginScreen = ({ navigation }) => {
                 activeOpacity={0.85}
               >
                 {loading ? (
-                  <ActivityIndicator color="#000000" />
+                  <ActivityIndicator color={colors.onPrimary} />
                 ) : (
                   <Text style={styles.loginButtonText}>INICIAR SESIÓN</Text>
                 )}
@@ -194,7 +189,7 @@ const LoginScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   scrollContent: {
     flexGrow: 1,
@@ -226,12 +221,12 @@ const styles = StyleSheet.create({
   logoBadge: {
     width: 68,
     height: 68,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
-    shadowColor: '#FFD200',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 10,
@@ -241,25 +236,25 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderWidth: 2.2,
-    borderColor: '#000000',
+    borderColor: colors.onPrimary,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoP: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 22,
     fontWeight: '900',
   },
   brandTitle: {
     fontSize: 30,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: colors.text,
     letterSpacing: 1.5,
   },
   brandSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 6,
     textAlign: 'center',
   },
@@ -273,27 +268,13 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#A0A0A0',
+    color: colors.textSecondary,
     letterSpacing: 0.6,
     marginBottom: 8,
   },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F0F10',
-    borderWidth: 1.5,
-    borderColor: '#FFD200',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 52,
-  },
-  textInput: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    flex: 1,
-  },
   eyeButton: {
     padding: 6,
+    marginRight: -6,
   },
   optionsRow: {
     flexDirection: 'row',
@@ -315,29 +296,29 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   checkboxChecked: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
   },
   checkboxUnchecked: {
     borderWidth: 1.5,
-    borderColor: '#666666',
-    backgroundColor: '#1C1C1E',
+    borderColor: colors.placeholder,
+    backgroundColor: colors.surfaceRaised,
   },
   rememberText: {
-    color: '#9E9E9E',
+    color: colors.textSecondary,
     fontSize: 13,
   },
   forgotPasswordText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
   },
   loginButton: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 52,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FFD200',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -347,7 +328,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   loginButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 0.8,
@@ -359,11 +340,11 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
   footerText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 14,
   },
   registerLink: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: 'bold',
   },

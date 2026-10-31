@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CITIES, normalizeText } from '../constants/cities';
+import { colors } from '../theme';
 
 const CityPickerModal = ({ visible, selected, onSelect, onClose }) => {
   const [query, setQuery] = useState('');
@@ -35,16 +36,16 @@ const CityPickerModal = ({ visible, selected, onSelect, onClose }) => {
           <View style={styles.header}>
             <Text style={styles.title}>¿En qué ciudad vives?</Text>
             <TouchableOpacity style={styles.closeBtn} onPress={handleClose}>
-              <Ionicons name="close" size={20} color="#FFFFFF" />
+              <Ionicons name="close" size={20} color={colors.text} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={18} color="#8E8E93" style={{ marginRight: 8 }} />
+            <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.searchInput}
               placeholder="Buscar ciudad..."
-              placeholderTextColor="#666668"
+              placeholderTextColor={colors.placeholder}
               value={query}
               onChangeText={setQuery}
             />
@@ -67,12 +68,12 @@ const CityPickerModal = ({ visible, selected, onSelect, onClose }) => {
                   <Ionicons
                     name="location-outline"
                     size={18}
-                    color={isSelected ? '#000000' : '#FFD200'}
+                    color={isSelected ? colors.onPrimary : colors.primary}
                   />
                   <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
                     {item.nombre}
                   </Text>
-                  {isSelected && <Ionicons name="checkmark" size={18} color="#000000" />}
+                  {isSelected && <Ionicons name="checkmark" size={18} color={colors.onPrimary} />}
                 </TouchableOpacity>
               );
             }}
@@ -95,11 +96,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     maxHeight: '80%',
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
   },
   header: {
     flexDirection: 'row',
@@ -110,22 +111,22 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#262628',
+    backgroundColor: colors.surfaceHigh,
     justifyContent: 'center',
     alignItems: 'center',
   },
   searchBox: {
     height: 46,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
@@ -133,7 +134,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
   },
   list: {
@@ -147,25 +148,25 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderRadius: 12,
     marginBottom: 6,
-    backgroundColor: '#0F0F11',
+    backgroundColor: colors.surfaceSunken,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   optionSelected: {
-    backgroundColor: '#FFD200',
-    borderColor: '#FFD200',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   optionText: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
   },
   optionTextSelected: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
   },
   emptyText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     paddingVertical: 20,
   },

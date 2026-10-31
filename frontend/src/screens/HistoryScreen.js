@@ -23,6 +23,7 @@ import StarRating from '../components/StarRating';
 import { getStoredUser } from '../services/session';
 import { VEHICLE_SINGULAR, getErrorMessage } from '../utils/reservas';
 import { formatPrice } from '../utils/parqueadero';
+import { colors } from '../theme';
 
 const PERIODOS = [
   { dias: 1, label: 'Hoy' },
@@ -31,9 +32,9 @@ const PERIODOS = [
 ];
 
 const ESTADOS = {
-  completada: { label: 'Llegó', color: '#34C759' },
-  cancelada: { label: 'Cancelada', color: '#8E8E93' },
-  vencida: { label: 'Venció', color: '#FF9F0A' },
+  completada: { label: 'Llegó', color: colors.success },
+  cancelada: { label: 'Cancelada', color: colors.textMuted },
+  vencida: { label: 'Venció', color: colors.warning },
 };
 
 // "30 oct · 16:05"
@@ -128,7 +129,7 @@ const HistoryScreen = ({ navigation }) => {
   const renderStat = (label, value, hint, icon) => (
     <View style={styles.statCard}>
       <View style={styles.statTop}>
-        <MaterialCommunityIcons name={icon} size={16} color="#FFD200" />
+        <MaterialCommunityIcons name={icon} size={16} color={colors.primary} />
         <Text style={styles.statLabel}>{label}</Text>
       </View>
       <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
@@ -188,7 +189,7 @@ const HistoryScreen = ({ navigation }) => {
   );
 
   const renderReserva = (reserva) => {
-    const estado = ESTADOS[reserva.estado] || { label: reserva.estado, color: '#8E8E93' };
+    const estado = ESTADOS[reserva.estado] || { label: reserva.estado, color: colors.textMuted };
     return (
       <View key={reserva.id} style={styles.card}>
         <View style={styles.cardTopRow}>
@@ -213,7 +214,7 @@ const HistoryScreen = ({ navigation }) => {
             <StarRating value={reserva.calificacion} size={14} />
           ) : !esDueno && reserva.estado === 'completada' ? (
             <TouchableOpacity style={styles.rateBtn} onPress={() => openRating(reserva)}>
-              <Ionicons name="star" size={14} color="#000000" />
+              <Ionicons name="star" size={14} color={colors.onPrimary} />
               <Text style={styles.rateBtnText}>CALIFICAR</Text>
             </TouchableOpacity>
           ) : null}
@@ -224,11 +225,11 @@ const HistoryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -236,7 +237,7 @@ const HistoryScreen = ({ navigation }) => {
         contentContainerStyle={[styles.scrollContent, isTablet && styles.tabletContent]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FFD200" colors={['#FFD200']} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
       >
         <Text style={styles.title}>{esDueno ? 'Historial y Resumen' : 'Mis Reservas'}</Text>
@@ -250,10 +251,10 @@ const HistoryScreen = ({ navigation }) => {
 
         <Text style={styles.sectionTitle}>RESERVAS ANTERIORES</Text>
         {loading ? (
-          <ActivityIndicator size="large" color="#FFD200" style={{ marginTop: 30 }} />
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 30 }} />
         ) : historial.length === 0 ? (
           <View style={styles.empty}>
-            <MaterialCommunityIcons name="ticket-outline" size={40} color="#3A3A3C" />
+            <MaterialCommunityIcons name="ticket-outline" size={40} color={colors.borderStrong} />
             <Text style={styles.emptyText}>Todavía no hay reservas terminadas</Text>
           </View>
         ) : (
@@ -275,7 +276,7 @@ const HistoryScreen = ({ navigation }) => {
               value={comentario}
               onChangeText={setComentario}
               placeholder="Cuéntales a otros clientes (opcional)"
-              placeholderTextColor="#5A5A5E"
+              placeholderTextColor={colors.textFaint}
               multiline
               maxLength={300}
             />
@@ -289,7 +290,7 @@ const HistoryScreen = ({ navigation }) => {
                 disabled={sendingRating}
               >
                 {sendingRating ? (
-                  <ActivityIndicator size="small" color="#000000" />
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
                 ) : (
                   <Text style={styles.modalSaveText}>Enviar</Text>
                 )}
@@ -305,7 +306,7 @@ const HistoryScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   header: {
     paddingHorizontal: 20,
@@ -316,7 +317,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -330,18 +331,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#A0A0A0',
+    color: colors.textSecondary,
     letterSpacing: 0.5,
     marginBottom: 12,
     marginTop: 8,
@@ -358,21 +359,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
     alignItems: 'center',
   },
   periodChipActive: {
-    backgroundColor: '#FFD200',
-    borderColor: '#FFD200',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   periodText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontWeight: 'bold',
     fontSize: 13,
   },
   periodTextActive: {
-    color: '#000000',
+    color: colors.onPrimary,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -383,7 +384,7 @@ const styles = StyleSheet.create({
   statCard: {
     flexBasis: '47%',
     flexGrow: 1,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 14,
     padding: 14,
   },
@@ -393,25 +394,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statLabel: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   statValue: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 24,
     fontWeight: 'bold',
     marginTop: 6,
   },
   statHint: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 11,
     marginTop: 2,
   },
 
   // Reservas
   card: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
@@ -424,7 +425,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -439,12 +440,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   cardDetail: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 13,
     marginTop: 4,
   },
   cardWash: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     marginTop: 4,
   },
@@ -455,20 +456,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   cardDate: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 12,
   },
   rateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   rateBtnText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 11,
     fontWeight: 'bold',
     letterSpacing: 0.5,
@@ -479,7 +480,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyText: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 14,
   },
 
@@ -494,21 +495,21 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 480,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 20,
     padding: 22,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     textAlign: 'center',
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 4,
   },
@@ -517,11 +518,11 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   commentInput: {
-    backgroundColor: '#0F0F10',
+    backgroundColor: colors.surfaceSunken,
     borderWidth: 1,
-    borderColor: '#3A3A3C',
+    borderColor: colors.borderStrong,
     borderRadius: 10,
-    color: '#FFFFFF',
+    color: colors.text,
     padding: 12,
     minHeight: 80,
     textAlignVertical: 'top',
@@ -537,19 +538,19 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   modalCancelText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontWeight: 'bold',
     fontSize: 15,
   },
   modalSaveBtn: {
     flex: 1,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
   },
   modalSaveText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     fontSize: 15,
   },

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StatusBar,
   ScrollView,
-  TextInput,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
@@ -17,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import api from '../services/api';
 import { hasValidCoords, geocodeAddress, openInMaps } from '../utils/maps';
+import Field from '../components/Field';
+import { colors } from '../theme';
 
 const EditLocationScreen = ({ navigation, route }) => {
   const parqueadero = route.params?.parqueadero;
@@ -173,7 +174,7 @@ const EditLocationScreen = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -181,10 +182,14 @@ const EditLocationScreen = ({ navigation, route }) => {
           style={styles.backBtn}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.profileBtn}>
-          <Ionicons name="person-outline" size={20} color="#8E8E93" />
+        <TouchableOpacity
+          style={styles.profileBtn}
+          onPress={() => navigation.navigate('Profile')}
+          accessibilityLabel="Mi perfil"
+        >
+          <Ionicons name="person-outline" size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -206,12 +211,10 @@ const EditLocationScreen = ({ navigation, route }) => {
             <Text style={styles.fieldLabel}>
               DIRECCIÓN FÍSICA <Text style={styles.required}>*</Text>
             </Text>
-            <TextInput
-              style={styles.input}
+            <Field
               value={direccion}
               onChangeText={setDireccion}
               placeholder="Ac. 24 #95a-80, Bogotá"
-              placeholderTextColor="#5A5A5E"
               returnKeyType="search"
               onSubmitEditing={searchAddress}
             />
@@ -222,10 +225,10 @@ const EditLocationScreen = ({ navigation, route }) => {
               activeOpacity={0.8}
             >
               {searchingAddress ? (
-                <ActivityIndicator size="small" color="#FFD200" />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
                 <>
-                  <Ionicons name="search" size={16} color="#FFD200" />
+                  <Ionicons name="search" size={16} color={colors.primary} />
                   <Text style={styles.searchAddressText}>UBICAR DIRECCIÓN</Text>
                 </>
               )}
@@ -235,12 +238,10 @@ const EditLocationScreen = ({ navigation, route }) => {
           {/* Detalles Adicionales */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>DETALLES ADICIONALES</Text>
-            <TextInput
-              style={styles.input}
+            <Field
               value={detalles}
               onChangeText={setDetalles}
               placeholder="Al lado del centro comercial"
-              placeholderTextColor="#5A5A5E"
             />
           </View>
         </ScrollView>
@@ -254,7 +255,7 @@ const EditLocationScreen = ({ navigation, route }) => {
             activeOpacity={0.8}
           >
             {saving ? (
-              <ActivityIndicator size="small" color="#000" />
+              <ActivityIndicator size="small" color={colors.onPrimary} />
             ) : (
               <Text style={styles.saveButtonText}>GUARDAR DIRECCIÓN</Text>
             )}
@@ -268,7 +269,7 @@ const EditLocationScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -282,7 +283,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -290,7 +293,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -301,12 +306,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 20,
   },
 
@@ -317,22 +322,12 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#8E8E93',
+    color: colors.textSecondary,
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   required: {
-    color: '#FF5252',
-  },
-  input: {
-    backgroundColor: '#1C1C1E',
-    borderWidth: 1.5,
-    borderColor: '#FFD200',
-    borderRadius: 12,
-    color: '#FFFFFF',
-    fontSize: 15,
-    paddingHorizontal: 16,
-    height: 52,
+    color: colors.danger,
   },
   searchAddressBtn: {
     flexDirection: 'row',
@@ -343,11 +338,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3D3D20',
-    backgroundColor: '#1F1F10',
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primarySoft,
   },
   searchAddressText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.8,
@@ -360,7 +355,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   saveButton: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 54,
     borderRadius: 14,
     justifyContent: 'center',
@@ -370,7 +365,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   saveButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 1,

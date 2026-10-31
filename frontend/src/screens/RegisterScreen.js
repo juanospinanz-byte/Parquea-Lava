@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -17,6 +16,8 @@ import api from '../services/api';
 import { saveSession } from '../services/session';
 import useResponsive from '../hooks/useResponsive';
 import CityPickerModal from '../components/CityPickerModal';
+import Field from '../components/Field';
+import { colors } from '../theme';
 
 const RegisterScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -82,7 +83,7 @@ const RegisterScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -105,12 +106,9 @@ const RegisterScreen = ({ navigation }) => {
                 onPress={() => navigation.goBack()}
                 activeOpacity={0.7}
               >
-                <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+                <Ionicons name="chevron-back" size={22} color={colors.text} />
               </TouchableOpacity>
 
-              <View style={styles.profileBadge}>
-                <Ionicons name="person-outline" size={20} color="#8E8E93" />
-              </View>
             </View>
 
             {/* Título de pantalla */}
@@ -124,59 +122,50 @@ const RegisterScreen = ({ navigation }) => {
                 <Text style={styles.label}>
                   NOMBRE COMPLETO <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Carlos Mendoza"
-                    placeholderTextColor="#666666"
-                    value={name}
-                    onChangeText={setName}
-                    autoCapitalize="words"
-                  />
-                </View>
+                <Field
+                  placeholder="Carlos Mendoza"
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                />
 
                 {/* Campo Correo */}
                 <Text style={[styles.label, { marginTop: 18 }]}>
                   CORREO ELECTRÓNICO <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="carlos@mendoza.com"
-                    placeholderTextColor="#666666"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
+                <Field
+                  placeholder="carlos@mendoza.com"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
 
                 {/* Campo Contraseña */}
                 <Text style={[styles.label, { marginTop: 18 }]}>
                   CONTRASEÑA <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={[styles.textInput, { flex: 1 }]}
-                    placeholder="••••••••"
-                    placeholderTextColor="#666666"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                  />
+                <Field
+                  placeholder="Mínimo 6 caracteres"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                >
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
                     style={styles.eyeButton}
                     activeOpacity={0.7}
+                    accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                   >
                     <Feather
                       name={showPassword ? 'eye' : 'eye-off'}
                       size={20}
-                      color="#888888"
+                      color={colors.textMuted}
                     />
                   </TouchableOpacity>
-                </View>
+                </Field>
               </View>
 
               <View style={isWideLayout && styles.formColumn}>
@@ -202,6 +191,9 @@ const RegisterScreen = ({ navigation }) => {
                     onPress={() => setRole('dueno_parqueadero')}
                     activeOpacity={0.8}
                   >
+                    {role === 'dueno_parqueadero' && (
+                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} style={styles.roleCheck} />
+                    )}
                     <View
                       style={[
                         styles.roleIconBox,
@@ -215,7 +207,7 @@ const RegisterScreen = ({ navigation }) => {
                           styles.roleIconTextP,
                           {
                             color:
-                              role === 'dueno_parqueadero' ? '#000000' : '#FFD200',
+                              role === 'dueno_parqueadero' ? colors.onPrimary : colors.primary,
                           },
                         ]}
                       >
@@ -239,6 +231,9 @@ const RegisterScreen = ({ navigation }) => {
                     onPress={() => setRole('cliente')}
                     activeOpacity={0.8}
                   >
+                    {role === 'cliente' && (
+                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} style={styles.roleCheck} />
+                    )}
                     <View
                       style={[
                         styles.roleIconBox,
@@ -250,7 +245,7 @@ const RegisterScreen = ({ navigation }) => {
                       <Ionicons
                         name="car-sport"
                         size={18}
-                        color={role === 'cliente' ? '#000000' : '#8E8E93'}
+                        color={role === 'cliente' ? colors.onPrimary : colors.textMuted}
                       />
                     </View>
                     <Text style={styles.roleTitle}>Usuario{'\n'}Cliente</Text>
@@ -267,15 +262,15 @@ const RegisterScreen = ({ navigation }) => {
                       CIUDAD DONDE VIVES <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TouchableOpacity
-                      style={[styles.inputWrapper, styles.cityField]}
+                      style={styles.cityField}
                       onPress={() => setCityPickerVisible(true)}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="location-outline" size={18} color="#FFD200" />
+                      <Ionicons name="location-outline" size={18} color={colors.primary} />
                       <Text style={[styles.cityText, !city && styles.cityPlaceholder]}>
                         {city ? city.nombre : 'Selecciona tu ciudad'}
                       </Text>
-                      <Ionicons name="chevron-down" size={18} color="#888888" />
+                      <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
                     </TouchableOpacity>
                   </>
                 )}
@@ -288,7 +283,7 @@ const RegisterScreen = ({ navigation }) => {
                   activeOpacity={0.85}
                 >
                   {loading ? (
-                    <ActivityIndicator color="#000000" />
+                    <ActivityIndicator color={colors.onPrimary} />
                   ) : (
                     <Text style={styles.registerButtonText}>REGISTRARSE</Text>
                   )}
@@ -315,7 +310,7 @@ const RegisterScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: colors.bg,
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -339,27 +334,19 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#1C1C1E',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 32,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: colors.text,
     letterSpacing: 0.5,
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 6,
     marginBottom: 24,
   },
@@ -376,43 +363,37 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#A0A0A0',
+    color: colors.textSecondary,
     letterSpacing: 0.6,
     marginBottom: 8,
   },
   requiredStar: {
-    color: '#FFD200',
+    color: colors.primary,
     fontWeight: 'bold',
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F0F10',
-    borderWidth: 1.5,
-    borderColor: '#FFD200',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 52,
-  },
-  textInput: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    flex: 1,
   },
   eyeButton: {
     padding: 6,
+    marginRight: -6,
   },
   cityField: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
+    height: 52,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surfaceSunken,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 12,
     marginBottom: 28,
   },
   cityText: {
     flex: 1,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: colors.text,
   },
   cityPlaceholder: {
-    color: '#666666',
+    color: colors.placeholder,
   },
   rolesRow: {
     flexDirection: 'row',
@@ -427,15 +408,20 @@ const styles = StyleSheet.create({
     minHeight: 145,
     justifyContent: 'space-between',
   },
+  roleCheck: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+  },
   roleCardActive: {
-    backgroundColor: '#101010',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1.5,
-    borderColor: '#FFD200',
+    borderColor: colors.primary,
   },
   roleCardInactive: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#262628',
+    borderColor: colors.border,
   },
   roleIconBox: {
     width: 34,
@@ -446,10 +432,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   roleIconBoxActive: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
   },
   roleIconBoxInactive: {
-    backgroundColor: '#242426',
+    backgroundColor: colors.surfaceHigh,
   },
   roleIconTextP: {
     fontSize: 16,
@@ -458,22 +444,22 @@ const styles = StyleSheet.create({
   roleTitle: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     lineHeight: 18,
     marginBottom: 4,
   },
   roleDescription: {
     fontSize: 11,
-    color: '#8E8E93',
+    color: colors.textMuted,
     lineHeight: 15,
   },
   registerButton: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     height: 52,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FFD200',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -483,7 +469,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   registerButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 0.8,

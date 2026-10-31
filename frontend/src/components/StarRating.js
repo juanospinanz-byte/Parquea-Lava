@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme';
 
 // Estrellas de 1 a 5. Con onChange se pueden tocar para calificar; sin onChange solo se muestran
 // (acepta medias estrellas, ej: 4.5)
-const StarRating = ({ value = 0, size = 16, onChange, color = '#FFD200', gap = 2 }) => (
+const StarRating = ({ value = 0, size = 16, onChange, color = colors.primary, gap = 2 }) => (
   <View style={[styles.row, { gap }]}>
     {[1, 2, 3, 4, 5].map((n) => {
       const name = value >= n ? 'star' : value >= n - 0.5 ? 'star-half' : 'star-outline';

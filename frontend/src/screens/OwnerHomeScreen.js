@@ -7,7 +7,6 @@ import {
   StatusBar,
   ScrollView,
   Modal,
-  TextInput,
   ActivityIndicator,
   Alert,
   RefreshControl,
@@ -22,11 +21,14 @@ import api from '../services/api';
 import useResponsive from '../hooks/useResponsive';
 import useRealtime from '../hooks/useRealtime';
 import ParkingMap from '../components/ParkingMap';
+import AppHeader from '../components/AppHeader';
+import Field from '../components/Field';
 import { getStoredUser, logout } from '../services/session';
 import { hasValidCoords, openInMaps } from '../utils/maps';
 import { VEHICLE_SINGULAR, withLocalExpiry, formatClock, getErrorMessage } from '../utils/reservas';
 import { formatPrice, fotoUrl, formatHorario, horaCorta, tieneHorario, formatRating } from '../utils/parqueadero';
 import { notifyNow, isRemotePushEnabled } from '../utils/notifications';
+import { colors } from '../theme';
 
 // Respaldo por si se cae el tiempo real: cada cuánto se consulta de nuevo mientras la pantalla está abierta
 const REFRESH_INTERVAL_MS = 30000;
@@ -317,7 +319,7 @@ const OwnerHomeScreen = ({ navigation }) => {
       </Text>
       {reservas.length === 0 ? (
         <View style={styles.reservasEmpty}>
-          <MaterialCommunityIcons name="ticket-outline" size={20} color="#5A5A5E" />
+          <MaterialCommunityIcons name="ticket-outline" size={20} color={colors.textFaint} />
           <Text style={styles.reservasEmptyText}>No hay reservas por ahora</Text>
         </View>
       ) : (
@@ -333,7 +335,7 @@ const OwnerHomeScreen = ({ navigation }) => {
                   </Text>
                   {reserva.servicio_nombre ? (
                     <View style={styles.reservaWash}>
-                      <MaterialCommunityIcons name="car-wash" size={14} color="#FFD200" />
+                      <MaterialCommunityIcons name="car-wash" size={14} color={colors.primary} />
                       <Text style={styles.reservaWashText} numberOfLines={1}>
                         {reserva.servicio_nombre} · {formatPrice(reserva.servicio_precio)}
                       </Text>
@@ -359,10 +361,10 @@ const OwnerHomeScreen = ({ navigation }) => {
                   disabled={busy}
                 >
                   {busy ? (
-                    <ActivityIndicator size="small" color="#000000" />
+                    <ActivityIndicator size="small" color={colors.onPrimary} />
                   ) : (
                     <>
-                      <Ionicons name="checkmark" size={18} color="#000000" />
+                      <Ionicons name="checkmark" size={18} color={colors.onPrimary} />
                       <Text style={styles.reservaArrivedText}>LLEGÓ</Text>
                     </>
                   )}
@@ -489,13 +491,15 @@ const OwnerHomeScreen = ({ navigation }) => {
     const disponibles = parqueadero[`${key}_disponibles`] || 0;
     const canEnter = disponibles > 0;
     const canLeave = disponibles < max;
+    // Parte de la barra que está ocupada
+    const ocupado = max > 0 ? Math.min(Math.max((max - disponibles) / max, 0), 1) : 0;
 
     return (
       <View key={key} style={styles.cellCard}>
         <View style={styles.cellTopRow}>
           <View style={[styles.cardLeft, { flex: 1 }]}>
             <View style={styles.iconBox}>
-              <IconSet name={icon} size={24} color="#FFD200" />
+              <IconSet name={icon} size={24} color={colors.primary} />
             </View>
             <View style={[styles.cardTextContainer, { flex: 1 }]}>
               <Text style={styles.cardTitle}>Celdas {label}</Text>
@@ -509,8 +513,19 @@ const OwnerHomeScreen = ({ navigation }) => {
             onPress={() => openEditModal(key)}
             accessibilityLabel={`Editar celdas de ${label}`}
           >
-            <MaterialCommunityIcons name="pencil" size={18} color="#000000" />
+            <MaterialCommunityIcons name="pencil" size={18} color={colors.primary} />
           </TouchableOpacity>
+        </View>
+
+        {/* Barra de ocupación: se pone roja cuando no quedan celdas */}
+        <View style={styles.occupancyTrack}>
+          <View
+            style={[
+              styles.occupancyFill,
+              { width: `${ocupado * 100}%` },
+              !canEnter && max > 0 && styles.occupancyFillFull,
+            ]}
+          />
         </View>
 
         {/* Contador: − entra un vehículo, + sale un vehículo */}
@@ -522,7 +537,7 @@ const OwnerHomeScreen = ({ navigation }) => {
             activeOpacity={0.7}
             accessibilityLabel={`Registrar entrada de ${label}`}
           >
-            <Ionicons name="remove" size={22} color="#000000" />
+            <Ionicons name="remove" size={22} color={colors.onPrimary} />
             <Text style={styles.counterBtnText}>ENTRA</Text>
           </TouchableOpacity>
 
@@ -534,14 +549,14 @@ const OwnerHomeScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            style={[styles.counterBtn, !canLeave && styles.counterBtnDisabled]}
+            style={[styles.counterBtn, styles.counterBtnSecondary, !canLeave && styles.counterBtnDisabled]}
             onPress={() => adjustDisponibles(key, 1)}
             disabled={!canLeave}
             activeOpacity={0.7}
             accessibilityLabel={`Registrar salida de ${label}`}
           >
-            <Ionicons name="add" size={22} color="#000000" />
-            <Text style={styles.counterBtnText}>SALE</Text>
+            <Ionicons name="add" size={22} color={colors.primary} />
+            <Text style={[styles.counterBtnText, styles.counterBtnTextSecondary]}>SALE</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -582,13 +597,13 @@ const OwnerHomeScreen = ({ navigation }) => {
           <Switch
             value={abiertoPorDueno}
             onValueChange={toggleAbierto}
-            trackColor={{ false: '#3A3A3C', true: '#FFD200' }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#3A3A3C"
+            trackColor={{ false: colors.borderStrong, true: colors.primary }}
+            thumbColor={colors.white}
+            ios_backgroundColor={colors.borderStrong}
           />
         </View>
         <TouchableOpacity style={styles.horarioRow} onPress={() => openEditModal('horario')} activeOpacity={0.8}>
-          <Ionicons name="time-outline" size={18} color="#FFD200" />
+          <Ionicons name="time-outline" size={18} color={colors.primary} />
           <Text style={styles.horarioText}>Horario: {formatHorario(parqueadero)}</Text>
           <Text style={styles.horarioEdit}>Cambiar</Text>
         </TouchableOpacity>
@@ -611,16 +626,16 @@ const OwnerHomeScreen = ({ navigation }) => {
           {url ? <Image source={{ uri: url }} style={styles.photo} resizeMode="cover" /> : null}
           {uploadingPhoto ? (
             <View style={styles.photoOverlay}>
-              <ActivityIndicator size="large" color="#FFD200" />
+              <ActivityIndicator size="large" color={colors.primary} />
             </View>
           ) : url ? (
             <View style={styles.photoBadge}>
-              <Ionicons name="camera" size={14} color="#000000" />
+              <Ionicons name="camera" size={14} color={colors.onPrimary} />
               <Text style={styles.photoBadgeText}>CAMBIAR</Text>
             </View>
           ) : (
             <>
-              <Ionicons name="camera-outline" size={32} color="#FFD200" />
+              <Ionicons name="camera-outline" size={32} color={colors.primary} />
               <Text style={styles.photoEmptyTitle}>AGREGAR FOTO</Text>
               <Text style={styles.photoEmptyText}>Así los clientes reconocen la entrada al llegar</Text>
             </>
@@ -636,20 +651,20 @@ const OwnerHomeScreen = ({ navigation }) => {
       <View style={styles.sectionHeaderRow}>
         <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>SERVICIOS DE LAVADO</Text>
         <TouchableOpacity onPress={() => openEditModal('lavado')} style={styles.addServiceBtn}>
-          <Ionicons name="add" size={16} color="#000000" />
+          <Ionicons name="add" size={16} color={colors.onPrimary} />
           <Text style={styles.addServiceText}>AGREGAR</Text>
         </TouchableOpacity>
       </View>
       <Text style={styles.sectionHint}>Los clientes pueden agregar un lavado al reservar su celda.</Text>
       {servicios.length === 0 ? (
         <TouchableOpacity style={styles.reservasEmpty} onPress={() => openEditModal('lavado')}>
-          <MaterialCommunityIcons name="car-wash" size={20} color="#5A5A5E" />
+          <MaterialCommunityIcons name="car-wash" size={20} color={colors.textFaint} />
           <Text style={styles.reservasEmptyText}>Aún no ofreces lavados. Toca para agregar uno.</Text>
         </TouchableOpacity>
       ) : (
         servicios.map((servicio) => (
           <View key={servicio.id} style={styles.serviceRow}>
-            <MaterialCommunityIcons name="car-wash" size={20} color="#FFD200" />
+            <MaterialCommunityIcons name="car-wash" size={20} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.serviceName} numberOfLines={1}>
                 {servicio.nombre}
@@ -661,14 +676,14 @@ const OwnerHomeScreen = ({ navigation }) => {
               onPress={() => openEditModal('lavado', servicio)}
               accessibilityLabel={`Editar ${servicio.nombre}`}
             >
-              <MaterialCommunityIcons name="pencil" size={16} color="#FFD200" />
+              <MaterialCommunityIcons name="pencil" size={16} color={colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.serviceIconBtn}
               onPress={() => confirmDeleteServicio(servicio)}
               accessibilityLabel={`Eliminar ${servicio.nombre}`}
             >
-              <Ionicons name="trash-outline" size={16} color="#FF5252" />
+              <Ionicons name="trash-outline" size={16} color={colors.danger} />
             </TouchableOpacity>
           </View>
         ))
@@ -691,7 +706,7 @@ const OwnerHomeScreen = ({ navigation }) => {
         <View style={styles.addressCard}>
           <View style={styles.addressRow}>
             <View style={styles.addressIconBox}>
-              <Ionicons name="location" size={20} color="#FFD200" />
+              <Ionicons name="location" size={20} color={colors.primary} />
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.addressLabel}>Dirección exacta</Text>
@@ -715,14 +730,14 @@ const OwnerHomeScreen = ({ navigation }) => {
               />
               <View style={styles.mapOverlay}>
                 <View style={styles.coordBadge}>
-                  <Ionicons name="navigate" size={12} color="#FFD200" />
+                  <Ionicons name="navigate" size={12} color={colors.primary} />
                   <Text style={styles.coordText}>VER EN MAPS</Text>
                 </View>
               </View>
             </TouchableOpacity>
           ) : (
             <View style={styles.noLocationContainer}>
-              <Ionicons name="map-outline" size={40} color="#3A3A3C" />
+              <Ionicons name="map-outline" size={40} color={colors.borderStrong} />
               <Text style={styles.noLocationText}>
                 No has configurado la ubicación
               </Text>
@@ -737,7 +752,7 @@ const OwnerHomeScreen = ({ navigation }) => {
             style={styles.editLocationBtn}
             onPress={() => navigation.navigate('EditLocation', { parqueadero })}
           >
-            <Ionicons name="map" size={18} color="#000" style={{ marginRight: 8 }} />
+            <Ionicons name="map" size={18} color={colors.onPrimary} style={{ marginRight: 8 }} />
             <Text style={styles.editLocationText}>
               {hasLocation ? 'EDITAR UBICACIÓN' : 'CONFIGURAR UBICACIÓN'}
             </Text>
@@ -752,12 +767,10 @@ const OwnerHomeScreen = ({ navigation }) => {
       return (
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Nombre del parqueadero</Text>
-          <TextInput
-            style={styles.input}
+          <Field
             value={editNombre}
             onChangeText={setEditNombre}
             placeholder="Ej: Parqueadero El Centro"
-            placeholderTextColor="#666"
             maxLength={100}
             autoCapitalize="words"
             autoFocus
@@ -774,33 +787,29 @@ const OwnerHomeScreen = ({ navigation }) => {
             <Switch
               value={edit24h}
               onValueChange={setEdit24h}
-              trackColor={{ false: '#3A3A3C', true: '#FFD200' }}
-              thumbColor="#FFFFFF"
-              ios_backgroundColor="#3A3A3C"
+              trackColor={{ false: colors.borderStrong, true: colors.primary }}
+              thumbColor={colors.white}
+              ios_backgroundColor={colors.borderStrong}
             />
           </View>
           {!edit24h ? (
             <View style={styles.hoursRow}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Abre (24 h)</Text>
-                <TextInput
-                  style={styles.input}
+                <Field
                   value={editApertura}
                   onChangeText={setEditApertura}
                   placeholder="06:00"
-                  placeholderTextColor="#666"
                   keyboardType="numbers-and-punctuation"
                   maxLength={5}
                 />
               </View>
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Cierra (24 h)</Text>
-                <TextInput
-                  style={styles.input}
+                <Field
                   value={editCierre}
                   onChangeText={setEditCierre}
                   placeholder="22:00"
-                  placeholderTextColor="#666"
                   keyboardType="numbers-and-punctuation"
                   maxLength={5}
                 />
@@ -820,24 +829,20 @@ const OwnerHomeScreen = ({ navigation }) => {
         <>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Servicio</Text>
-            <TextInput
-              style={styles.input}
+            <Field
               value={editServicioNombre}
               onChangeText={setEditServicioNombre}
               placeholder="Ej: Lavado general, Motor, Tapicería"
-              placeholderTextColor="#666"
               maxLength={80}
               autoCapitalize="sentences"
             />
           </View>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Precio ($)</Text>
-            <TextInput
-              style={styles.input}
+            <Field
               value={editServicioPrecio}
               onChangeText={setEditServicioPrecio}
               placeholder="15000"
-              placeholderTextColor="#666"
               keyboardType="numeric"
             />
           </View>
@@ -849,32 +854,26 @@ const OwnerHomeScreen = ({ navigation }) => {
       <>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Celdas Disponibles</Text>
-          <TextInput
-            style={styles.input}
+          <Field
             value={editDisponibles}
             onChangeText={setEditDisponibles}
             keyboardType="number-pad"
-            placeholderTextColor="#666"
           />
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Capacidad Máxima</Text>
-          <TextInput
-            style={styles.input}
+          <Field
             value={editMax}
             onChangeText={setEditMax}
             keyboardType="number-pad"
-            placeholderTextColor="#666"
           />
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Precio por Hora ($)</Text>
-          <TextInput
-            style={styles.input}
+          <Field
             value={editPrecio}
             onChangeText={setEditPrecio}
             keyboardType="numeric"
-            placeholderTextColor="#666"
           />
         </View>
       </>
@@ -891,7 +890,7 @@ const OwnerHomeScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#FFD200" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -899,8 +898,8 @@ const OwnerHomeScreen = ({ navigation }) => {
   if (!parqueadero) {
     return (
       <SafeAreaView style={[styles.container, styles.errorContainer]}>
-        <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <Ionicons name="cloud-offline-outline" size={48} color="#3A3A3C" />
+        <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+        <Ionicons name="cloud-offline-outline" size={48} color={colors.borderStrong} />
         <Text style={styles.errorTitle}>No se pudo cargar tu parqueadero</Text>
         <Text style={styles.errorText}>Revisa tu conexión a internet e inténtalo de nuevo.</Text>
         <TouchableOpacity style={styles.retryButton} onPress={retryLoad} activeOpacity={0.8}>
@@ -918,21 +917,9 @@ const OwnerHomeScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
 
-      {/* Top Header */}
-      <View style={[styles.header, tabletPadding]}>
-        <View style={styles.parkappBadge}>
-          <Text style={styles.parkappText}>PARKAPP</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.profileBadge}
-          onPress={() => navigation.navigate('Profile')}
-          accessibilityLabel="Mi perfil"
-        >
-          <Ionicons name="person-outline" size={20} color="#8E8E93" />
-        </TouchableOpacity>
-      </View>
+      <AppHeader style={tabletPadding} onProfilePress={() => navigation.navigate('Profile')} />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -942,8 +929,8 @@ const OwnerHomeScreen = ({ navigation }) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#FFD200"
-            colors={['#FFD200']}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
@@ -957,14 +944,16 @@ const OwnerHomeScreen = ({ navigation }) => {
 
         {/* Historial, resumen y calificación */}
         <TouchableOpacity style={styles.historyCard} onPress={() => navigation.navigate('History')} activeOpacity={0.8}>
-          <MaterialCommunityIcons name="chart-box-outline" size={22} color="#FFD200" />
+          <View style={styles.iconBoxSmall}>
+            <MaterialCommunityIcons name="chart-box-outline" size={20} color={colors.primary} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.historyTitle}>Historial y resumen</Text>
             <Text style={styles.historyText}>
               {rating ? `★ ${rating} · ` : ''}Reservas, ingresos estimados y lavados
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color="#5A5A5E" />
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         </TouchableOpacity>
 
         {/* Nombre del parqueadero (es el que ven los clientes) */}
@@ -972,7 +961,7 @@ const OwnerHomeScreen = ({ navigation }) => {
         <View style={styles.card}>
           <View style={[styles.cardLeft, { flex: 1 }]}>
             <View style={styles.iconBox}>
-              <MaterialCommunityIcons name="parking" size={24} color="#FFD200" />
+              <MaterialCommunityIcons name="parking" size={24} color={colors.primary} />
             </View>
             <View style={[styles.cardTextContainer, { flex: 1 }]}>
               <Text
@@ -984,8 +973,12 @@ const OwnerHomeScreen = ({ navigation }) => {
               <Text style={styles.cardSubtitle}>Así te verán los clientes</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal('nombre')}>
-            <MaterialCommunityIcons name="pencil" size={18} color="#000000" />
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => openEditModal('nombre')}
+            accessibilityLabel="Editar nombre del parqueadero"
+          >
+            <MaterialCommunityIcons name="pencil" size={18} color={colors.primary} />
           </TouchableOpacity>
         </View>
         <View style={{ height: 12 }} />
@@ -1023,7 +1016,7 @@ const OwnerHomeScreen = ({ navigation }) => {
               onPress={confirmLogout}
               activeOpacity={0.8}
             >
-              <Ionicons name="exit-outline" size={20} color="#FF5252" style={{ marginRight: 8 }} />
+              <Ionicons name="exit-outline" size={20} color={colors.danger} style={{ marginRight: 8 }} />
               <Text style={styles.logoutButtonText}>CERRAR SESIÓN</Text>
             </TouchableOpacity>
           </View>
@@ -1059,7 +1052,7 @@ const OwnerHomeScreen = ({ navigation }) => {
                 disabled={savingModal}
               >
                 {savingModal ? (
-                  <ActivityIndicator size="small" color="#000000" />
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
                 ) : (
                   <Text style={styles.modalSaveText}>Guardar</Text>
                 )}
@@ -1075,42 +1068,14 @@ const OwnerHomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    marginBottom: 20,
-  },
-  parkappBadge: {
-    borderWidth: 1,
-    borderColor: '#FFD200',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  parkappText: {
-    color: '#FFD200',
-    fontWeight: 'bold',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  profileBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#1C1C1E',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: colors.bg,
   },
   tabletPadding: {
     paddingHorizontal: 40,
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 16,
   },
   columns: {
     flexDirection: 'row',
@@ -1121,28 +1086,28 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 14,
-    color: '#FFD200',
+    color: colors.primary,
     fontWeight: '600',
     marginBottom: 2,
   },
   mainTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 4,
   },
   mainSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 24,
   },
 
   // Abierto / cerrado
   statusCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#1F3D25',
+    borderColor: colors.successBorder,
     padding: 14,
     marginBottom: 20,
   },
@@ -1158,16 +1123,16 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#232325',
+    borderTopColor: colors.border,
   },
   horarioText: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
   horarioEdit: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
   },
@@ -1177,18 +1142,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 20,
   },
+  iconBoxSmall: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   historyTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: 'bold',
   },
   historyText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -1198,14 +1173,14 @@ const styles = StyleSheet.create({
     height: 170,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     marginBottom: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   photoCardEmpty: {
     borderWidth: 1,
-    borderColor: '#3D3D20',
+    borderColor: colors.primaryBorder,
     borderStyle: 'dashed',
     gap: 4,
     paddingHorizontal: 20,
@@ -1226,25 +1201,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   photoBadgeText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 11,
     fontWeight: 'bold',
   },
   photoEmptyTitle: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: 'bold',
     letterSpacing: 0.8,
     marginTop: 6,
   },
   photoEmptyText: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -1254,13 +1229,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   addServiceText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 11,
     fontWeight: 'bold',
   },
@@ -1268,19 +1243,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 8,
   },
   serviceName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   servicePrice: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: 'bold',
     marginTop: 2,
@@ -1289,7 +1266,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 8,
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1302,7 +1279,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   switchLabel: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1311,44 +1288,46 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalHint: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 6,
   },
 
   statusCardClosed: {
-    borderColor: '#4A1F1F',
+    borderColor: colors.dangerBorder,
   },
   statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#34C759',
+    backgroundColor: colors.success,
   },
   statusDotClosed: {
-    backgroundColor: '#FF5252',
+    backgroundColor: colors.danger,
   },
   statusTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
   statusText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
   sectionTitle: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#A0A0A0',
+    color: colors.textSecondary,
     letterSpacing: 0.5,
     marginBottom: 12,
   },
   card: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1363,7 +1342,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.primarySoft,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -1374,28 +1353,45 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 2,
   },
   cardSubtitle: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   nameEmpty: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontStyle: 'italic',
   },
   // Tarjeta de celdas con contador
   cellCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 12,
   },
   cellTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  occupancyTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceSunken,
+    overflow: 'hidden',
     marginBottom: 14,
+  },
+  occupancyFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  occupancyFillFull: {
+    backgroundColor: colors.danger,
   },
   counterRow: {
     flexDirection: 'row',
@@ -1406,36 +1402,44 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 4,
   },
+  counterBtnSecondary: {
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+  },
   counterBtnDisabled: {
     opacity: 0.3,
   },
   counterBtnText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  counterBtnTextSecondary: {
+    color: colors.primary,
   },
   counterValue: {
     minWidth: 84,
     alignItems: 'center',
   },
   counterNumber: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 26,
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],
   },
   counterNumberFull: {
-    color: '#FF5252',
+    color: colors.danger,
   },
   counterLabel: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 11,
   },
   sectionHeaderRow: {
@@ -1445,20 +1449,22 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   occupancyText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
   },
   sectionHint: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 12,
     marginBottom: 12,
   },
   editBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: '#FFD200',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1468,8 +1474,10 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   addressCard: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: 16,
     marginBottom: 16,
   },
@@ -1482,19 +1490,19 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: 'rgba(255, 210, 0, 0.12)',
+    backgroundColor: colors.primarySoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
   addressLabel: {
     fontSize: 11,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 2,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   addressText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1506,14 +1514,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
-    backgroundColor: '#0F0F11',
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSunken,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
   mapPreviewText: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.8,
@@ -1532,7 +1540,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   coordText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 11,
     marginLeft: 5,
     fontWeight: '500',
@@ -1543,19 +1551,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 24,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
     borderRadius: 12,
     borderStyle: 'dashed',
     marginBottom: 16,
   },
   noLocationText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '600',
     marginTop: 12,
   },
   noLocationSubtext: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 12,
     textAlign: 'center',
     marginTop: 4,
@@ -1564,7 +1572,7 @@ const styles = StyleSheet.create({
 
   // Botón editar ubicación
   editLocationBtn: {
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -1572,7 +1580,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   editLocationText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     fontSize: 13,
     letterSpacing: 0.5,
@@ -1589,16 +1597,16 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 480,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 20,
     textAlign: 'center',
   },
@@ -1607,17 +1615,9 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 12,
-    color: '#A0A0A0',
+    fontWeight: '600',
+    color: colors.textSecondary,
     marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#0F0F10',
-    borderWidth: 1,
-    borderColor: '#FFD200',
-    borderRadius: 10,
-    color: '#FFFFFF',
-    paddingHorizontal: 14,
-    height: 48,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -1631,35 +1631,35 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   modalCancelText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontWeight: 'bold',
     fontSize: 15,
   },
   modalSaveBtn: {
     flex: 1,
-    backgroundColor: '#FFD200',
-    borderRadius: 10,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
   },
   modalSaveText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     fontSize: 15,
   },
   logoutButton: {
-    backgroundColor: '#161618',
+    backgroundColor: colors.surface,
     height: 52,
     borderRadius: 14,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
     marginTop: 10,
   },
   logoutButtonText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -1671,19 +1671,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#2C2C2E',
+    borderColor: colors.border,
     borderStyle: 'dashed',
     borderRadius: 14,
     padding: 14,
   },
   reservasEmptyText: {
-    color: '#5A5A5E',
+    color: colors.textFaint,
     fontSize: 13,
   },
   reservaCard: {
-    backgroundColor: '#1F1F10',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#FFD200',
+    borderColor: colors.primary,
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
@@ -1694,13 +1694,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   reservaPlaca: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 20,
     fontWeight: 'bold',
     letterSpacing: 2,
   },
   reservaDetail: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -1712,7 +1712,7 @@ const styles = StyleSheet.create({
   },
   reservaWashText: {
     flex: 1,
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 12,
   },
   reservaExpiry: {
@@ -1720,11 +1720,11 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   reservaExpiryLabel: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 11,
   },
   reservaExpiryTime: {
-    color: '#FFD200',
+    color: colors.primary,
     fontSize: 16,
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],
@@ -1738,12 +1738,12 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#FF5252',
+    borderColor: colors.danger,
     justifyContent: 'center',
     alignItems: 'center',
   },
   reservaNoShowText: {
-    color: '#FF5252',
+    color: colors.danger,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.5,
@@ -1752,14 +1752,14 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 10,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 4,
   },
   reservaArrivedText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.5,
@@ -1772,28 +1772,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
   },
   errorTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: 'bold',
     marginTop: 14,
     textAlign: 'center',
   },
   errorText: {
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontSize: 13,
     marginTop: 6,
     textAlign: 'center',
   },
   retryButton: {
     marginTop: 20,
-    backgroundColor: '#FFD200',
+    backgroundColor: colors.primary,
     paddingHorizontal: 28,
     height: 46,
     borderRadius: 12,
     justifyContent: 'center',
   },
   retryButtonText: {
-    color: '#000000',
+    color: colors.onPrimary,
     fontWeight: 'bold',
     letterSpacing: 0.8,
   },
